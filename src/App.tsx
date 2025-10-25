@@ -44,6 +44,9 @@ const Boost = lazy(() => import('./views/Home.jsx'))
 const GetBcx = lazy(() => import('./views/GetBcx.jsx'))
 // @ts-ignore - JSX module shim
 const Transaction = lazy(() => import('./views/Transaction.jsx'))
+
+import { useTelegramWalletRedirect } from './useTelegramWalletRedirect ';
+
 function App() {
   const { address, isConnected } = useAccount()
   const { disconnect } = useDisconnect()
@@ -53,6 +56,7 @@ function App() {
     return localStorage.getItem('hasEntered') === 'true'
   })
 
+  useTelegramWalletRedirect();
   // Capture ?ref= once on mount and run helper
   useEffect(() => {
     try {

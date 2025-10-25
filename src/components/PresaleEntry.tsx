@@ -1,178 +1,104 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import buycexlogo from "../assets/img/BUYCEX-INFINITY.png";
-import { useWeb3Modal } from "@web3modal/wagmi/react";
-import { useAccount } from "wagmi";
-import axios from "axios";
+import React, { useEffect } from 'react'
+import { NavLink } from 'react-router-dom'
+import { useAccount } from 'wagmi'
+import buycexlogo from '../assets/img/BUYCEX-INFINITY.png'
 
-const BACKEND_URL = "https://isochronous-packable-sherly.ngrok-free.dev"; // ✅ new backend
+const PresaleEntry: React.FC = () => {
+  const { isConnected, address } = useAccount()
 
-const PresaleEntry = () => {
-  const navigate = useNavigate();
-  const { open: openWeb3Modal } = useWeb3Modal();
-  const { isConnected, address } = useAccount();
+  // Detect Telegram WebView
+  const isTelegram =
+    typeof window !== 'undefined' && !!(window as any).Telegram?.WebApp
 
-  const [telegramUser, setTelegramUser] = useState<any>(null);
-  const [isTelegram, setIsTelegram] = useState(false);
-  const [isTelegramMobile, setIsTelegramMobile] = useState(false);
-  const [isAutoLogged, setIsAutoLogged] = useState(false);
-
-  // 🔹 Redirect safely to Boost
-  const redirectToBoost = () => {
-    if (isTelegram && isTelegramMobile) {
-      const tg = window.Telegram?.WebApp;
-      tg?.openLink?.(`${window.location.origin}/boost`);
-    } else {
-      navigate("/boost", { replace: true });
+  // Debug wallet deep links being blocked in Telegram
+  useEffect(() => {
+    const interceptNavigation = (e: any) => {
+      const url = e?.url || e?.target?.location?.href
+      if (
+        url &&
+        (url.startsWith('wc:') ||
+          url.startsWith('metamask:') ||
+          url.startsWith('trust:'))
+      ) {
+        alert('🚨 Telegram blocked a wallet link:\n' + url)
+        e.preventDefault?.()
+      }
     }
-  };
 
-  // 🧩 Detect Telegram WebApp
-  useEffect(() => {
-    const tg = window.Telegram?.WebApp;
-    const mobile = tg && /Mobile/i.test(navigator.userAgent);
-    setIsTelegram(!!tg);
-    setIsTelegramMobile(!!mobile);
-  }, []);
-
-  // 🚀 Initialize Telegram login
-  useEffect(() => {
-    let timeoutId: NodeJS.Timeout | null = null;
-    const controller = new AbortController();
-
-    const initTelegram = () => {
-      const tg = window.Telegram?.WebApp;
-      if (!tg) {
-        setTimeout(initTelegram, 500);
-        return;
-      }
-
-      tg.ready?.();
-      tg.expand?.();
-
-      const user = tg.initDataUnsafe?.user;
-      const initData = tg.initData;
-
-      if (user && user.first_name) {
-        setTelegramUser(user);
-        setIsTelegram(true);
-        localStorage.setItem("telegramUser", JSON.stringify(user));
-
-        // ✅ Send Telegram login info to backend
-        fetch(`${BACKEND_URL}/api/telegram-login`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ initData }),
-          signal: controller.signal,
-        })
-          .then((res) => res.json())
-          .then((data) => {
-            if (!data.success) console.error("Telegram login failed:", data);
-            else autoLoginSync(data.user.telegramId);
-          })
-          .catch((err) => {
-            if (err.name !== "AbortError") console.error(err);
-          });
-
-        // Redirect after login
-        timeoutId = setTimeout(() => redirectToBoost(), 1000);
-      } else {
-        const cachedUser = localStorage.getItem("telegramUser");
-        if (cachedUser) {
-          const parsedUser = JSON.parse(cachedUser);
-          setTelegramUser(parsedUser);
-          setIsTelegram(true);
-          autoLoginSync(parsedUser.id);
-          timeoutId = setTimeout(() => redirectToBoost(), 1000);
-        }
-      }
-    };
-
-    window.addEventListener("TelegramWebAppReady", initTelegram);
-    setTimeout(initTelegram, 1000);
-
+    window.addEventListener('beforeunload', interceptNavigation)
+    window.addEventListener('message', interceptNavigation)
     return () => {
-      if (timeoutId) clearTimeout(timeoutId);
-      controller.abort();
-      window.removeEventListener("TelegramWebAppReady", initTelegram);
-    };
-  }, []);
+      window.removeEventListener('beforeunload', interceptNavigation)
+      window.removeEventListener('message', interceptNavigation)
+    }
+  }, [])
 
-  // 🔗 Link wallet ↔ Telegram
+  // Debug check for missing AppKit registration
   useEffect(() => {
-    if (!isConnected || !address) return;
-    const telegramUser = JSON.parse(localStorage.getItem("telegramUser") || "null");
-    if (!telegramUser) return;
-
-    axios
-      .post(`${BACKEND_URL}/api/link-telegram`, {
-        walletAddress: address,
-        telegramData: telegramUser,
-      })
-      .then((res) => console.log("✅ Linked wallet ↔ Telegram:", res.data))
-      .catch((err) => console.error("❌ Link failed:", err));
-  }, [isConnected, address]);
-
-  // 🌟 Auto-login sync
-  const autoLoginSync = async (telegramId: string) => {
-    if (isAutoLogged) return;
-    try {
-      const res = await axios.post(`${BACKEND_URL}/api/auto-login`, {
-        telegramId,
-      });
-      if (res.data?.walletAddress) {
-        console.log("🔁 Auto-login synced:", res.data.walletAddress);
-        setIsAutoLogged(true);
-      }
-    } catch (err) {
-      console.error("Auto-login failed:", err);
+    const registered = customElements.get('appkit-button')
+    if (!registered) {
+      alert('⚠️ appkit-button not registered. Check AppKitProvider setup!')
     }
-  };
-
-  // 🧭 Handle wallet connect
-  const handleConnectWallet = async () => {
-    if (isTelegramMobile) {
-      const tg = window.Telegram?.WebApp;
-      const msg =
-        "Wallet connection isn’t supported inside Telegram.\n\nTap ⋮ → ‘Open in Browser’ to connect your wallet.";
-      tg?.showAlert ? tg.showAlert(msg) : alert(msg);
-      return;
-    }
-
-    try {
-      await openWeb3Modal();
-    } catch (err) {
-      console.error("WalletConnect failed:", err);
-    }
-  };
-
-  // ⏩ Redirect connected users
-  useEffect(() => {
-    if (isConnected && !isTelegram) {
-      localStorage.setItem("hasEntered", "true");
-      setTimeout(() => redirectToBoost(), 500);
-    }
-  }, [isConnected, isTelegram]);
+  }, [])
 
   return (
     <div className="flex h-screen items-center justify-center bg-black text-white">
       <div className="w-[90%] max-w-md rounded-lg border border-white/10 bg-black/40 p-8 text-center backdrop-blur-lg shadow-lg">
-        <img src={buycexlogo} alt="Buycex Logo" className="mx-auto mb-6 h-14 w-auto" />
+        {/* Logo */}
+        <img
+          src={buycexlogo}
+          alt="Buycex Logo"
+          className="mx-auto mb-6 h-14 w-auto"
+        />
+
+        {/* Title */}
         <h1 className="mb-2 text-4xl font-bold text-yellow-400">
           Enter The Buycex Presale
         </h1>
 
+        {/* Description */}
         <p className="mb-6 text-lg text-white/80">
-          {isTelegram && telegramUser
-            ? `Welcome ${telegramUser.first_name}! Telegram login successful ✅ Redirecting...`
-            : "To join the presale, connect your wallet or open via Telegram."}
+          {isConnected
+            ? `✅ Wallet connected: ${address?.slice(0, 6)}...${address?.slice(-4)}`
+            : 'To join the presale, connect your wallet first!'}
         </p>
 
         <hr className="border-t border-white/10 my-4" />
 
+        {/* Wallet Connect Button (from AppKit) */}
+        <div className="flex flex-col items-center gap-4">
+          {/* ✅ Reown’s connect button */}
+          <div className="flex justify-center">
+            <appkit-button />
+          </div>
+
+          {/* Show network selector only when connected */}
+          {isConnected && (
+            <div className="flex justify-center">
+              <appkit-network-button />
+            </div>
+          )}
+
+          {/* Go Home button */}
+          <NavLink
+            to="/home"
+            className="mt-4 px-6 py-2 border border-yellow-400 text-yellow-400 rounded font-semibold hover:bg-yellow-400 hover:text-black transition"
+          >
+            Go Home
+          </NavLink>
+        </div>
+
+        {/* Telegram Warning */}
+        {isTelegram && (
+          <div className="mt-6 text-sm text-red-400">
+            ⚠️ You’re inside Telegram. Wallets may fail to open here.
+            <br />
+            Please tap <strong>⋮ → Open in Browser</strong> and reconnect.
+          </div>
+        )}
       </div>
     </div>
-  );
-};
+  )
+}
 
-export default PresaleEntry;
+export default PresaleEntry
