@@ -1,4 +1,3 @@
-// src/utils/appkit.tsx
 import React from 'react'
 import { wagmiAdapter, projectId } from './config'
 import { createAppKit } from '@reown/appkit/react'
@@ -10,6 +9,10 @@ import {
 
 import { WagmiProvider, type Config } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+// ✅ Detect Telegram WebView
+const isTelegram =
+  typeof window !== 'undefined' && !!(window as any).Telegram?.WebApp
 
 const queryClient = new QueryClient()
 
@@ -25,7 +28,7 @@ const metadata = {
   icons: ["https://avatars.githubusercontent.com/u/179229932"]
 }
 
-// ✅ Initialize Reown AppKit modal
+// ✅ Initialize Reown AppKit modal (no walletConnect property)
 createAppKit({
   adapters: [wagmiAdapter],
   chainImages: {
@@ -46,6 +49,7 @@ createAppKit({
   ],
   defaultNetwork: mainnet,
   metadata,
+  themeMode: 'light',
   features: {
     analytics: true,
     email: true,
@@ -53,8 +57,13 @@ createAppKit({
     emailShowWallets: true,
     collapseWallets: true,
   },
-  themeMode: 'light'
 })
+
+// ✅ Optional: patch Telegram WebView to prefer browser wallet linking
+if (isTelegram) {
+  // Open links in external browser (for MetaMask / Trust etc.)
+  (window as any).Telegram?.WebApp?.openLink('https://minicheck.vercel.app')
+}
 
 export const AppKitProvider = ({ children }: { children: React.ReactNode }) => {
   return (
