@@ -21,7 +21,7 @@ if (!projectId) {
 const metadata = {
   name: "Buycex Presale App",
   description: "Powered by Reown AppKit",
-  url: "https://yourdomain.com",
+  url: "https://minicheck.vercel.app/",
   icons: ["https://avatars.githubusercontent.com/u/179229932"]
 }
 
