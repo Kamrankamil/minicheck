@@ -23,6 +23,7 @@ const PresaleEntry: React.FC = () => {
   const [isLoadingTelegram, setIsLoadingTelegram] = useState<boolean>(false);
   const [telegramError, setTelegramError] = useState<string | null>(null);
   const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
+  const [hasTriedToConnect, setHasTriedToConnect] = useState<boolean>(false);
 
   // Warn if AppKit button isn't registered
   useEffect(() => {
@@ -42,7 +43,6 @@ const PresaleEntry: React.FC = () => {
         const launchParams = retrieveLaunchParams();
         console.log('📱 Launch params:', launchParams);
 
-        // ✅ Check if we have initData with proper type checking
         if (launchParams.initData && typeof launchParams.initData === 'object' && 'user' in launchParams.initData) {
           const user = (launchParams.initData as any).user as TelegramUser;
           console.log('✅ Telegram user detected:', user);
@@ -166,10 +166,42 @@ const PresaleEntry: React.FC = () => {
   useEffect(() => {
     if (isConnecting) {
       setShowInstructions(true);
+      setHasTriedToConnect(true);
     } else {
       setShowInstructions(false);
     }
   }, [isConnecting]);
+
+  // ✅ Poll for connection changes when user returns from MetaMask
+  useEffect(() => {
+    const isTelegram = typeof window !== 'undefined' && !!(window as any).Telegram?.WebApp;
+    
+    if (isTelegram && hasTriedToConnect && !isConnected) {
+      console.log('🔄 Polling for wallet connection...');
+      
+      // Check every 2 seconds for connection
+      const pollInterval = setInterval(() => {
+        console.log('🔍 Checking connection status...');
+        
+        // The useAccount hook should auto-update, but we log for debugging
+        if (isConnected) {
+          console.log('✅ Connection detected!');
+          clearInterval(pollInterval);
+        }
+      }, 2000);
+
+      // Stop polling after 2 minutes
+      const timeout = setTimeout(() => {
+        clearInterval(pollInterval);
+        console.log('⏱️ Stopped polling after timeout');
+      }, 120000);
+
+      return () => {
+        clearInterval(pollInterval);
+        clearTimeout(timeout);
+      };
+    }
+  }, [hasTriedToConnect, isConnected]);
 
   return (
     <div className="flex h-screen items-center justify-center bg-black text-white">
@@ -212,14 +244,28 @@ const PresaleEntry: React.FC = () => {
           </div>
         )}
 
-        {/* Wallet Connection */}
+        {/* Wallet Connection Status */}
         <div className="mb-6">
           <div className="text-center">
             {isConnected && address ? (
-              <p className="text-green-400">✅ Connected: {address.slice(0, 6)}...{address.slice(-4)}</p>
+              <div className="p-3 bg-green-500/10 border border-green-500/30 rounded">
+                <p className="text-green-400 font-semibold">✅ Wallet Connected</p>
+                <p className="text-green-300 text-sm">{address.slice(0, 6)}...{address.slice(-4)}</p>
+              </div>
+            ) : hasTriedToConnect && !isConnecting ? (
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded animate-pulse">
+                <p className="text-yellow-400 font-semibold">⏳ Waiting for confirmation...</p>
+                <p className="text-yellow-300 text-xs mt-1">
+                  Return to Telegram after approving in MetaMask
+                </p>
+              </div>
+            ) : isConnecting ? (
+              <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded">
+                <p className="text-blue-400 font-semibold">🔄 Connecting...</p>
+              </div>
             ) : (
-              <div className="text-yellow-400">
-                {isConnecting ? <p>⏳ Connecting Wallet...</p> : <p className="text-red-400">🔴 Wallet not connected</p>}
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded">
+                <p className="text-red-400 font-semibold">🔴 Wallet not connected</p>
               </div>
             )}
           </div>
@@ -228,32 +274,49 @@ const PresaleEntry: React.FC = () => {
         {/* Action Button */}
         {isConnected && telegramUser ? (
           <NavLink
-            to="/presale"
+            to="/home"
             className="w-full inline-block px-6 py-3 rounded-lg text-lg font-bold text-black bg-yellow-400 hover:bg-yellow-500 transition-colors"
           >
             Enter Presale
           </NavLink>
         ) : (
           <div className="w-full">
-            <div className="flex justify-center">
+            <div className="flex justify-center mb-4">
               <appkit-button />
             </div>
-            <p className="text-gray-400 text-sm mt-2">
-              Connect wallet and ensure Telegram login is complete.
+            <p className="text-gray-400 text-sm">
+              {telegramUser 
+                ? 'Connect your wallet to continue' 
+                : 'Waiting for Telegram login...'}
             </p>
           </div>
         )}
 
-        {/* Wallet connection instructions for Telegram Mobile */}
+        {/* Instructions when connecting */}
         {showInstructions && (
-          <div className="mt-4 p-4 border border-blue-500/30 bg-blue-500/10 rounded-lg text-sm text-left">
-            <p className="text-blue-300 font-bold">Connecting on Telegram Mobile:</p>
-            <ol className="list-disc list-inside mt-2 text-gray-300">
-              <li>Tap "Connect Wallet" below.</li>
-              <li>Select your wallet app (e.g., MetaMask, Trust Wallet).</li>
-              <li>Approve the connection in your wallet app.</li>
-              <li>Switch back to Telegram and the page will refresh.</li>
+          <div className="mt-4 p-4 border border-yellow-500/30 bg-yellow-500/10 rounded-lg text-sm text-left animate-pulse">
+            <p className="text-yellow-300 font-bold mb-2">📱 Important Steps:</p>
+            <ol className="list-decimal list-inside text-yellow-200 space-y-1">
+              <li>MetaMask should open automatically</li>
+              <li>Tap "Connect" in MetaMask</li>
+              <li><strong>Return to Telegram immediately</strong></li>
+              <li>Wait for confirmation (auto-detects)</li>
             </ol>
+            <p className="mt-2 text-xs text-yellow-400">
+              💡 Don't close Telegram while connecting
+            </p>
+          </div>
+        )}
+
+        {/* Waiting for connection message */}
+        {hasTriedToConnect && !isConnected && !isConnecting && (
+          <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded text-sm">
+            <p className="text-blue-300">
+              ⏳ Checking for wallet connection...
+            </p>
+            <p className="text-blue-400 text-xs mt-1">
+              If you approved in MetaMask, the connection will appear shortly
+            </p>
           </div>
         )}
       </div>
