@@ -10,7 +10,7 @@ const isTelegram =
 const PresaleEntry: React.FC = () => {
   const { isConnected, address } = useAccount()
 
-  // Warn if AppKit button isn’t registered
+  // Warn if AppKit button isn't registered
   useEffect(() => {
     const registered = customElements.get('appkit-button')
     if (!registered) {
@@ -18,16 +18,11 @@ const PresaleEntry: React.FC = () => {
     }
   }, [])
 
-  // Optional: Redirect Telegram users out of WebView
+  // ✅ Show Telegram info without auto-redirecting
   useEffect(() => {
     if (isTelegram) {
-      // Option 1: Auto open in default browser
-      const currentUrl = window.location.href
-      const openUrl = `https://openinbrowser.app/?redirect=${encodeURIComponent(currentUrl)}`
-      const timer = setTimeout(() => {
-        window.location.href = openUrl
-      }, 2500)
-      return () => clearTimeout(timer)
+      console.log('📱 Running inside Telegram WebView')
+      console.log('✅ Wallet redirect helper is active')
     }
   }, [])
 
@@ -59,7 +54,7 @@ const PresaleEntry: React.FC = () => {
         <div className="flex flex-col items-center gap-4">
           <div className="flex justify-center">
             <appkit-button />
-          </div>
+          </div>  
 
           {isConnected && (
             <div className="flex justify-center">
@@ -75,12 +70,12 @@ const PresaleEntry: React.FC = () => {
           </NavLink>
         </div>
 
-        {/* Telegram warning */}
+        {/* Telegram info */}
         {isTelegram && (
-          <div className="mt-6 text-sm text-red-400">
-            ⚠️ You’re inside Telegram, wallet links may not work here.
+          <div className="mt-6 p-3 bg-blue-500/10 border border-blue-500/30 rounded text-sm text-blue-300">
+            📱 <strong>Telegram detected!</strong>
             <br />
-            Tap <strong>⋮ → Open in Browser</strong> or <strong>Share → Open in Chrome</strong> to continue.
+            Click "Connect Wallet" above - it will open MetaMask/Trust automatically.
           </div>
         )}
       </div>
