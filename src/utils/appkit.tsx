@@ -4,7 +4,7 @@ import { mainnet, bsc, bscTestnet, type AppKitNetwork } from '@reown/appkit/netw
 import { wagmiAdapter, projectId } from './config'
 import { WagmiProvider, type Config } from 'wagmi'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { initTelegramWalletRedirect } from '@/useTelegramWalletRedirect'
+import { initTelegramWalletRedirect } from '../useTelegramWalletRedirect'
 const queryClient = new QueryClient()
 
 // ✅ Define supported networks
