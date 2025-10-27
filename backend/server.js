@@ -2,26 +2,66 @@ import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import crypto from 'crypto';
+import dotenv from 'dotenv';
+import rateLimit from 'express-rate-limit';
+
+dotenv.config();
 
 const app = express();
-app.use(cors());
-app.use(express.json());
-app.use(cors({ origin: "*" }));
 
-mongoose.connect('mongodb://localhost:27017/launchguard', {
+// ✅ Single CORS configuration
+app.use(cors({
+  origin: (origin, cb) => {
+    const whitelist = [
+      'http://localhost:5173',
+      'https://minicheck.vercel.app',
+      'https://isochronous-packable-sherly.ngrok-free.dev',
+      'https://kora-brotherless-unofficiously.ngrok-free.dev',
+      'https://web.telegram.org',
+      'https://t.me',
+    ];
+    if (!origin) return cb(null, true); // allow curl/postman
+    try {
+      const ok = whitelist.includes(origin) ||
+                 /\.ngrok-free\.dev$/i.test(new URL(origin).hostname);
+      return ok ? cb(null, true) : cb(new Error('Not allowed by CORS'));
+    } catch {
+      return cb(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 204
+}));
+
+app.use(express.json());
+
+// ✅ Rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100,
+  message: { success: false, error: 'Too many requests, please try again later.' }
+});
+
+app.use('/api/', apiLimiter);
+
+// ✅ Environment variables
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/launchguard';
+const PORT = process.env.PORT || 5000;
+
+if (!BOT_TOKEN) {
+  throw new Error('❌ TELEGRAM_BOT_TOKEN environment variable is required');
+}
+
+// ✅ MongoDB connection
+mongoose.connect(MONGODB_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-}).then(() => console.log('✅ MongoDB connected'));
+}).then(() => console.log('✅ MongoDB connected'))
+  .catch(err => console.error('❌ MongoDB connection error:', err));
 
-app.use(cors({
-  origin: [
-    "http://localhost:5173", // your local React app
-    "https://isochronous-packable-sherly.ngrok-free.dev",
-    "https://kora-brotherless-unofficiously.ngrok-free.dev" // your ngrok link
-  ],
-  methods: ["GET", "POST", "PUT", "DELETE"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-}));
 // --- Task Schema ---
 const TaskSchema = new mongoose.Schema({
   name: String,
@@ -42,18 +82,45 @@ const WalletSchema = new mongoose.Schema({
   telegramId: { type: String, default: null },
   telegramUsername: { type: String, default: null },
   telegramFirstName: { type: String, default: null },
+  telegramLastName: { type: String, default: null },
   telegramPhotoUrl: { type: String, default: null },
+  telegramConnected: { type: Boolean, default: false }
 });
+
+// ✅ Add indexes for performance
+WalletSchema.index({ telegramId: 1 });
+WalletSchema.index({ walletAddress: 1 });
+WalletSchema.index({ totalReward: -1 });
+WalletSchema.index({ totalHoldings: -1 });
 
 const Wallet = mongoose.model('Wallet', WalletSchema);
 
-// --- Add / Update Wallet ---
+// ✅ Validation helper
+const isValidWalletAddress = (address) => {
+  return /^0x[a-fA-F0-9]{40}$/.test(address) || 
+         address.startsWith('tg_') || 
+         address.startsWith('temp_') || 
+         address.startsWith('ref_');
+};
+
 // --- Add / Update Wallet (with referral logic) ---
 app.post('/api/wallet', async (req, res) => {
   try {
     const { walletAddress, referrer } = req.body;
-    if (!walletAddress)
-      return res.status(400).json({ error: 'Wallet address required' });
+    
+    if (!walletAddress) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Wallet address required' 
+      });
+    }
+
+    if (!isValidWalletAddress(walletAddress)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid wallet address format' 
+      });
+    }
 
     const defaultTasks = [
       { name: 'Join Telegram', reward: 0.01, completed: false },
@@ -63,7 +130,6 @@ app.post('/api/wallet', async (req, res) => {
 
     let wallet = await Wallet.findOne({ walletAddress });
 
-    // If new wallet — create it
     if (!wallet) {
       wallet = new Wallet({
         walletAddress,
@@ -73,57 +139,75 @@ app.post('/api/wallet', async (req, res) => {
       await wallet.save();
 
       // Handle referrer updates
-      if (referrer) {
+      if (referrer && isValidWalletAddress(referrer)) {
         const referrerWallet = await Wallet.findOne({ walletAddress: referrer });
-        if (referrerWallet) {
-          // Add referral only if not already counted
-          if (!referrerWallet.referrals.includes(walletAddress)) {
-            referrerWallet.friendsReferred += 1;
-            referrerWallet.referrals.push(walletAddress);
+        if (referrerWallet && !referrerWallet.referrals.includes(walletAddress)) {
+          referrerWallet.friendsReferred += 1;
+          referrerWallet.referrals.push(walletAddress);
+          referrerWallet.totalReward += 0.01;
 
-            // Base reward for each invite
-            referrerWallet.totalReward += 0.01;
-
-            // --- Task Progression ---
-            for (const task of referrerWallet.tasks) {
-              if (!task.completed) {
-                if (
-                  (task.name === "On board 2 friends" && referrerWallet.friendsReferred >= 2) ||
-                  (task.name === "On board 5 friends" && referrerWallet.friendsReferred >= 5)
-                ) {
-                  task.completed = true;
-                  referrerWallet.totalReward += task.reward;
-                }
+          for (const task of referrerWallet.tasks) {
+            if (!task.completed) {
+              if (
+                (task.name === "On board 2 friends" && referrerWallet.friendsReferred >= 2) ||
+                (task.name === "On board 5 friends" && referrerWallet.friendsReferred >= 5)
+              ) {
+                task.completed = true;
+                referrerWallet.totalReward += task.reward;
               }
             }
-
-            await referrerWallet.save();
           }
+
+          await referrerWallet.save();
         }
       }
     }
 
     res.json({ success: true, wallet });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('❌ Error in /api/wallet:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error',
+      message: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
-
 
 // --- Mark a Task Completed ---
 app.post('/api/complete-task', async (req, res) => {
   try {
     const { walletAddress, taskName } = req.body;
-    if (!walletAddress || !taskName)
-      return res.status(400).json({ error: 'Wallet address and task name required' });
+    
+    if (!walletAddress || !taskName) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Wallet address and task name required' 
+      });
+    }
 
     const wallet = await Wallet.findOne({ walletAddress });
-    if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
+    if (!wallet) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Wallet not found' 
+      });
+    }
 
     const task = wallet.tasks.find(t => t.name === taskName);
-    if (!task) return res.status(404).json({ error: 'Task not found' });
-    if (task.completed) return res.status(400).json({ error: 'Task already completed' });
+    if (!task) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Task not found' 
+      });
+    }
+    
+    if (task.completed) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Task already completed' 
+      });
+    }
 
     task.completed = true;
     wallet.totalReward += task.reward;
@@ -131,28 +215,47 @@ app.post('/api/complete-task', async (req, res) => {
 
     res.json({ success: true, wallet, earnedReward: task.reward });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('❌ Error completing task:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
   }
 });
 
 // --- Get Leaderboard ---
 app.get('/api/leaderboard/rewards', async (req, res) => {
   try {
-    const wallets = await Wallet.find().sort({ totalReward: -1 });
+    const wallets = await Wallet.find()
+      .sort({ totalReward: -1 })
+      .limit(100)
+      .select('walletAddress telegramFirstName telegramUsername totalReward friendsReferred');
+    
     res.json({ success: true, wallets });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    console.error('❌ Error fetching rewards leaderboard:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
   }
 });
 
-// --- 💎 Holders Leaderboard ---
+// --- Holders Leaderboard ---
 app.get('/api/leaderboard/holders', async (req, res) => {
   try {
-    const wallets = await Wallet.find().sort({ totalHoldings: -1 });
+    const wallets = await Wallet.find()
+      .sort({ totalHoldings: -1 })
+      .limit(100)
+      .select('walletAddress telegramFirstName telegramUsername totalHoldings');
+    
     res.json({ success: true, wallets });
   } catch (err) {
-    res.status(500).json({ error: 'Server error' });
+    console.error('❌ Error fetching holders leaderboard:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
   }
 });
 
@@ -160,8 +263,21 @@ app.get('/api/leaderboard/holders', async (req, res) => {
 app.get('/api/referral-stats/:walletAddress', async (req, res) => {
   try {
     const { walletAddress } = req.params;
+    
+    if (!walletAddress) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Wallet address required' 
+      });
+    }
+
     const wallet = await Wallet.findOne({ walletAddress });
-    if (!wallet) return res.status(404).json({ error: 'Wallet not found' });
+    if (!wallet) {
+      return res.status(404).json({ 
+        success: false, 
+        error: 'Wallet not found' 
+      });
+    }
 
     res.json({
       success: true,
@@ -170,24 +286,26 @@ app.get('/api/referral-stats/:walletAddress', async (req, res) => {
       referrals: wallet.referrals
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('❌ Error fetching referral stats:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
   }
 });
 
-// Telegram Bot Token
-const BOT_TOKEN = '8316272259:AAFQK5O1dWQqNxfSGWYBJzptg-pp4--pcjk'; // 🔐 Replace this with your actual bot token
-
-// --- Telegram Login ---
-// --- Telegram Login ---
+// --- Telegram Login (with hash validation) ---
 app.post('/api/telegram-login', async (req, res) => {
   try {
     const { initData } = req.body;
+    
     if (!initData || typeof initData !== 'string') {
-      return res.status(400).json({ error: 'Missing initData string' });
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Missing initData string' 
+      });
     }
 
-    // ✅ Ensure proper decoding
     let decodedData = decodeURIComponent(initData);
     const params = new URLSearchParams(decodedData);
 
@@ -197,8 +315,11 @@ app.post('/api/telegram-login', async (req, res) => {
         try {
           data[key] = JSON.parse(value);
         } catch (e) {
-          console.error('Failed to parse Telegram user:', e);
-          return res.status(400).json({ error: 'Invalid user data' });
+          console.error('❌ Failed to parse Telegram user:', e);
+          return res.status(400).json({ 
+            success: false, 
+            error: 'Invalid user data' 
+          });
         }
       } else {
         data[key] = value;
@@ -207,8 +328,11 @@ app.post('/api/telegram-login', async (req, res) => {
 
     const { hash, user } = data;
     if (!hash || !user) {
-      console.error('⚠️ Missing hash or user in Telegram data:', data);
-      return res.status(400).json({ error: 'Invalid Telegram payload' });
+      console.error('⚠️ Missing hash or user in Telegram data');
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid Telegram payload' 
+      });
     }
 
     // ✅ Verify hash
@@ -221,21 +345,26 @@ app.post('/api/telegram-login', async (req, res) => {
 
     const hmac = crypto.createHmac('sha256', secretKey).update(checkString).digest('hex');
     if (hmac !== hash) {
-      console.error('❌ Hash mismatch');
-      return res.status(403).json({ error: 'Invalid Telegram login data' });
+      console.error('❌ Hash mismatch - invalid Telegram data');
+      return res.status(403).json({ 
+        success: false, 
+        error: 'Invalid Telegram login data' 
+      });
     }
 
-    // ✅ Extract Telegram user info
     const telegramId = user.id?.toString();
     const username = user.username || '';
     const firstName = user.first_name || '';
+    const lastName = user.last_name || '';
     const photoUrl = user.photo_url || '';
 
     if (!telegramId) {
-      return res.status(400).json({ error: 'Invalid Telegram user data' });
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid Telegram user data' 
+      });
     }
 
-    // ✅ Create or update wallet
     let wallet = await Wallet.findOne({ telegramId });
 
     if (!wallet) {
@@ -244,18 +373,22 @@ app.post('/api/telegram-login', async (req, res) => {
         telegramId,
         telegramUsername: username,
         telegramFirstName: firstName,
+        telegramLastName: lastName,
         telegramPhotoUrl: photoUrl,
         tasks: [
           { name: 'Join Telegram', reward: 0.01, completed: true },
-          { name: 'On board 2 friends', reward: 0.02 },
-          { name: 'On board 5 friends', reward: 0.05 },
+          { name: 'On board 2 friends', reward: 0.02, completed: false },
+          { name: 'On board 5 friends', reward: 0.05, completed: false },
         ],
         totalReward: 0.01,
+        telegramConnected: true
       });
     } else {
       wallet.telegramUsername = username;
       wallet.telegramFirstName = firstName;
+      wallet.telegramLastName = lastName;
       wallet.telegramPhotoUrl = photoUrl;
+      wallet.telegramConnected = true;
     }
 
     await wallet.save();
@@ -265,70 +398,137 @@ app.post('/api/telegram-login', async (req, res) => {
     res.json({
       success: true,
       message: 'Telegram login successful',
-      wallet,
-      user: { telegramId, username, firstName, photoUrl },
+      data: wallet,
+      user: { telegramId, username, firstName, lastName, photoUrl }
     });
   } catch (err) {
     console.error('❌ Telegram login error:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error',
+      message: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
   }
 });
 
+// --- ✅ Mobile Telegram Login (no hash validation) ---
+app.post('/api/telegram-login-mobile', async (req, res) => {
+  try {
+    const { telegramUser } = req.body;
+    
+    console.log('📱 Mobile login request:', telegramUser);
+    
+    if (!telegramUser?.id) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'Invalid user data' 
+      });
+    }
 
+    const telegramId = telegramUser.id.toString();
+    
+    let wallet = await Wallet.findOne({ telegramId });
 
-// --- ✅ Link Telegram to existing wallet ---
+    if (!wallet) {
+      console.log('✅ Creating new wallet for Telegram user:', telegramId);
+      wallet = new Wallet({
+        walletAddress: `temp_${telegramId}`,
+        telegramId,
+        telegramUsername: telegramUser.username || null,
+        telegramFirstName: telegramUser.first_name || null,
+        telegramLastName: telegramUser.last_name || null,
+        telegramPhotoUrl: telegramUser.photo_url || null,
+        tasks: [
+          { name: 'Join Telegram', reward: 0.01, completed: true },
+          { name: 'On board 2 friends', reward: 0.02, completed: false },
+          { name: 'On board 5 friends', reward: 0.05, completed: false },
+        ],
+        totalReward: 0.01,
+        telegramConnected: true
+      });
+    } else {
+      console.log('✅ Updating existing wallet for Telegram user:', telegramId);
+      wallet.telegramUsername = telegramUser.username || wallet.telegramUsername;
+      wallet.telegramFirstName = telegramUser.first_name || wallet.telegramFirstName;
+      wallet.telegramLastName = telegramUser.last_name || wallet.telegramLastName;
+      wallet.telegramPhotoUrl = telegramUser.photo_url || wallet.telegramPhotoUrl;
+      wallet.telegramConnected = true;
+    }
+
+    await wallet.save();
+
+    res.json({
+      success: true,
+      message: 'Mobile login successful',
+      data: wallet
+    });
+  } catch (err) {
+    console.error('❌ Mobile login error:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
+  }
+});
+
+// --- Link Telegram to existing wallet ---
 app.post("/api/link-telegram", async (req, res) => {
   try {
     const { walletAddress, telegramData } = req.body;
 
     if (!walletAddress || !telegramData?.id) {
-      return res.status(400).json({ error: "Missing wallet or Telegram data" });
+      return res.status(400).json({ 
+        success: false, 
+        error: "Missing wallet or Telegram data" 
+      });
+    }
+
+    if (!isValidWalletAddress(walletAddress)) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Invalid wallet address format" 
+      });
     }
 
     const telegramId = telegramData.id.toString();
 
-    // Check if Telegram record exists
-    let telegramWallet = await Wallet.findOne({ telegramId });
+    // Find wallet by Telegram ID
+    let wallet = await Wallet.findOne({ telegramId });
 
-    if (!telegramWallet) {
-      // Create minimal Telegram record if not exists
-      telegramWallet = new Wallet({
-        walletAddress: `tg_${telegramId}`,
+    if (wallet) {
+      // Update wallet address if it was temporary
+      if (wallet.walletAddress.startsWith('temp_')) {
+        wallet.walletAddress = walletAddress;
+        console.log('✅ Updated temporary wallet to real address:', walletAddress);
+      }
+      
+      // Update Telegram data
+      wallet.telegramUsername = telegramData.username || wallet.telegramUsername;
+      wallet.telegramFirstName = telegramData.first_name || wallet.telegramFirstName;
+      wallet.telegramLastName = telegramData.last_name || wallet.telegramLastName;
+      wallet.telegramPhotoUrl = telegramData.photo_url || wallet.telegramPhotoUrl;
+      wallet.telegramConnected = true;
+    } else {
+      // Create new wallet if doesn't exist
+      console.log('✅ Creating new wallet with address:', walletAddress);
+      wallet = new Wallet({
+        walletAddress,
         telegramId,
         telegramUsername: telegramData.username || null,
         telegramFirstName: telegramData.first_name || null,
+        telegramLastName: telegramData.last_name || null,
         telegramPhotoUrl: telegramData.photo_url || null,
         tasks: [
-          { name: "Join Telegram", reward: 0.01, completed: true },
-          { name: "On board 2 friends", reward: 0.02 },
-          { name: "On board 5 friends", reward: 0.05 },
+          { name: 'Join Telegram', reward: 0.01, completed: true },
+          { name: 'On board 2 friends', reward: 0.02, completed: false },
+          { name: 'On board 5 friends', reward: 0.05, completed: false },
         ],
         totalReward: 0.01,
-      });
-      await telegramWallet.save();
-    }
-
-    // Find or create main wallet
-    let wallet = await Wallet.findOne({ walletAddress });
-    if (!wallet) {
-      wallet = new Wallet({
-        walletAddress,
-        tasks: [
-          { name: "Join Telegram", reward: 0.01 },
-          { name: "On board 2 friends", reward: 0.02 },
-          { name: "On board 5 friends", reward: 0.05 },
-        ],
+        telegramConnected: true
       });
     }
 
-    // Merge Telegram info
-    wallet.telegramId = telegramId;
-    wallet.telegramUsername = telegramData.username || null;
-    wallet.telegramFirstName = telegramData.first_name || null;
-    wallet.telegramPhotoUrl = telegramData.photo_url || null;
-    wallet.telegramConnected = true;
-
-    // Mark “Join Telegram” completed
+    // Mark "Join Telegram" completed
     const joinTask = wallet.tasks.find(t => t.name === "Join Telegram");
     if (joinTask && !joinTask.completed) {
       joinTask.completed = true;
@@ -337,44 +537,56 @@ app.post("/api/link-telegram", async (req, res) => {
 
     await wallet.save();
 
-    // Cleanup temporary tg_ record
-    if (telegramWallet.walletAddress.startsWith("tg_")) {
-      await Wallet.deleteOne({ _id: telegramWallet._id });
-    }
-
-    res.json({ success: true, wallet });
+    res.json({ success: true, data: wallet });
   } catch (err) {
     console.error("❌ Error linking Telegram:", err);
-    res.status(500).json({ error: "Server error" });
+    res.status(500).json({ 
+      success: false, 
+      error: "Server error" 
+    });
   }
 });
-// --- Get currently connected wallet (for frontend auto-login)
+
+// --- Get currently connected wallet ---
 app.get('/api/current-wallet', async (req, res) => {
   try {
-    // Example: fetch latest Telegram or wallet-connected user
     const wallet = await Wallet.findOne().sort({ connectedAt: -1 });
-    if (!wallet) return res.json({ success: false, message: 'No wallet connected yet' });
+    if (!wallet) {
+      return res.json({ 
+        success: false, 
+        message: 'No wallet connected yet' 
+      });
+    }
     res.json({ success: true, wallet });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
+    console.error('❌ Error fetching current wallet:', err);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Server error' 
+    });
   }
 });
+
+// --- Referral Join ---
 app.post('/api/referral-join', async (req, res) => {
   try {
     const { referrer, telegramId, telegramFirstName, telegramUsername, telegramPhotoUrl } = req.body;
 
     if (!referrer || !telegramId) {
-      return res.status(400).json({ success: false, error: "Missing required fields" });
+      return res.status(400).json({ 
+        success: false, 
+        error: "Missing required fields" 
+      });
     }
 
-    // Check if this user already exists
     const existing = await Wallet.findOne({ telegramId });
     if (existing) {
-      return res.json({ success: false, error: "Already joined" });
+      return res.json({ 
+        success: false, 
+        error: "Already joined" 
+      });
     }
 
-    // Create referred user
     const newUser = await Wallet.create({
       walletAddress: `ref_${telegramId}`,
       telegramId,
@@ -387,31 +599,46 @@ app.post('/api/referral-join', async (req, res) => {
         { name: "On board 2 friends", reward: 0.02, completed: false },
         { name: "On board 5 friends", reward: 0.05, completed: false },
         { name: "On board 10 friends", reward: 0.1, completed: false }
-      ]
+      ],
+      telegramConnected: true
     });
 
-    // Update referrer’s stats
     const referrerUser = await Wallet.findOne({ walletAddress: referrer });
     if (referrerUser) {
       referrerUser.friendsReferred += 1;
-      referrerUser.totalReward += 0.01; // reward for referral
+      referrerUser.totalReward += 0.01;
       await referrerUser.save();
     }
 
     res.json({ success: true, wallet: newUser });
   } catch (err) {
-    console.error("Referral join error:", err);
-    res.status(500).json({ success: false, error: "Server error" });
+    console.error("❌ Referral join error:", err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Server error" 
+    });
   }
 });
-// --- ✅ Auto-login: find wallet by Telegram ID ---
+
+// --- Auto-login: find wallet by Telegram ID ---
 app.post("/api/auto-login", async (req, res) => {
   try {
     const { telegramId } = req.body;
-    if (!telegramId) return res.status(400).json({ success: false, error: "Missing telegramId" });
+    
+    if (!telegramId) {
+      return res.status(400).json({ 
+        success: false, 
+        error: "Missing telegramId" 
+      });
+    }
 
     const wallet = await Wallet.findOne({ telegramId });
-    if (!wallet) return res.json({ success: false, message: "No linked wallet found" });
+    if (!wallet) {
+      return res.json({ 
+        success: false, 
+        message: "No linked wallet found" 
+      });
+    }
 
     res.json({
       success: true,
@@ -422,11 +649,42 @@ app.post("/api/auto-login", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("Auto-login error:", err);
-    res.status(500).json({ success: false, error: "Server error" });
+    console.error("❌ Auto-login error:", err);
+    res.status(500).json({ 
+      success: false, 
+      error: "Server error" 
+    });
   }
 });
 
+// ✅ Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    success: true, 
+    message: 'Server is running',
+    timestamp: new Date().toISOString()
+  });
+});
 
+// ✅ 404 handler
+app.use((req, res) => {
+  res.status(404).json({ 
+    success: false, 
+    error: 'Endpoint not found' 
+  });
+});
 
-app.listen(5000, () => console.log('🚀 Server running on port 5000'));
+// ✅ Global error handler
+app.use((err, req, res, next) => {
+  console.error('❌ Unhandled error:', err);
+  res.status(500).json({ 
+    success: false, 
+    error: 'Internal server error',
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📝 Environment: ${process.env.NODE_ENV || 'development'}`);
+});

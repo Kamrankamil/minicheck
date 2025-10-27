@@ -6,7 +6,10 @@ import buycexlogo from '../assets/img/BUYCEX-INFINITY.png';
 // ✅ Correct imports from Telegram SDK
 import { retrieveLaunchParams } from '@telegram-apps/sdk-react';
 
-const BACKEND_URL = 'http://localhost:5000'; // Change to your ngrok URL in production
+const BACKEND_URL =
+  import.meta.env.VITE_BACKEND_URL ||
+  (location.hostname === 'localhost' ? 'http://localhost:5000'
+                                     : 'https://isochronous-packable-sherly.ngrok-free.dev'); // Change to your ngrok URL in production
 
 interface TelegramUser {
   id: number;
