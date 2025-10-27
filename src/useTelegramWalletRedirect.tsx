@@ -33,23 +33,17 @@ export const initTelegramWalletRedirect = () => {
 
         // Build universal link with return URL
         if (wcUri) {
-          // Add return URL so MetaMask comes back to Telegram
-          const returnUrl = encodeURIComponent(window.location.href);
-          const metamaskUniversal = `https://metamask.app.link/wc?uri=${encodeURIComponent(wcUri)}&redirect=${returnUrl}`;
+          const metamaskUniversal = `https://metamask.app.link/wc?uri=${encodeURIComponent(wcUri)}`;
           const trustUniversal = `https://link.trustwallet.com/wc?uri=${encodeURIComponent(wcUri)}`;
 
-          console.log("✅ WalletConnect URI detected, using MetaMask universal link with return URL");
+          console.log("✅ WalletConnect URI detected:", wcUri.substring(0, 50) + "...");
+          console.log("📱 MetaMask universal link:", metamaskUniversal.substring(0, 100) + "...");
           
           if (isTG) {
-            console.log("📱 Opening via Telegram.WebApp.openLink");
+            console.log("📱 Opening via Telegram.WebApp.openLink (not openTelegramLink)");
             
-            // Use openTelegramLink for better handling
-            (window as any).Telegram.WebApp.openTelegramLink(metamaskUniversal);
-            
-            // Show instructions in UI
-            setTimeout(() => {
-              alert("Please approve the connection in MetaMask, then return to Telegram");
-            }, 1000);
+            // ✅ Correct method: openLink (opens external browser)
+            (window as any).Telegram.WebApp.openLink(metamaskUniversal);
             
             return null;
           } else {
@@ -94,7 +88,7 @@ export const initTelegramWalletRedirect = () => {
     // Override window.open globally
     (window as any).open = (url?: string | URL | undefined) => tryOpen(url);
 
-    console.log("✅ Telegram wallet redirect initialized with return URL support");
+    console.log("✅ Telegram wallet redirect initialized");
 
     return () => {
       (window as any).open = originalOpen;
