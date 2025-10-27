@@ -298,116 +298,65 @@ app.get('/api/referral-stats/:walletAddress', async (req, res) => {
 app.post('/api/telegram-login', async (req, res) => {
   try {
     const { initData } = req.body;
-    
     if (!initData || typeof initData !== 'string') {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Missing initData string' 
-      });
+      return res.status(400).json({ success: false, error: 'Missing initData string' });
     }
 
-    let decodedData = decodeURIComponent(initData);
-    const params = new URLSearchParams(decodedData);
+    // Use raw initData, URLSearchParams will decode percent-encoding itself
+    const params = new URLSearchParams(initData);
 
-    const data = {};
+    // Build data_check_string from RAW values (as Telegram sent them)
+    const entries = [];
     for (const [key, value] of params.entries()) {
-      if (key === 'user') {
-        try {
-          data[key] = JSON.parse(value);
-        } catch (e) {
-          console.error('❌ Failed to parse Telegram user:', e);
-          return res.status(400).json({ 
-            success: false, 
-            error: 'Invalid user data' 
-          });
-        }
-      } else {
-        data[key] = value;
-      }
+      if (key !== 'hash') entries.push([key, value]);
     }
+    entries.sort((a, b) => a[0].localeCompare(b[0]));
+    const dataCheckString = entries.map(([k, v]) => `${k}=${v}`).join('\n');
 
-    const { hash, user } = data;
-    if (!hash || !user) {
-      console.error('⚠️ Missing hash or user in Telegram data');
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Invalid Telegram payload' 
-      });
-    }
-
-    // ✅ Verify hash
-    const secretKey = crypto.createHash('sha256').update(BOT_TOKEN).digest();
-    const checkString = Object.keys(data)
-      .filter((key) => key !== 'hash')
-      .sort()
-      .map((key) => `${key}=${typeof data[key] === 'object' ? JSON.stringify(data[key]) : data[key]}`)
-      .join('\n');
-
-    const hmac = crypto.createHmac('sha256', secretKey).update(checkString).digest('hex');
+    // Verify HMAC
+    const secretKey = crypto.createHash('sha256').update(process.env.TELEGRAM_BOT_TOKEN).digest();
+    const hmac = crypto.createHmac('sha256', secretKey).update(dataCheckString).digest('hex');
+    const hash = params.get('hash');
     if (hmac !== hash) {
-      console.error('❌ Hash mismatch - invalid Telegram data');
-      return res.status(403).json({ 
-        success: false, 
-        error: 'Invalid Telegram login data' 
-      });
+      return res.status(403).json({ success: false, error: 'Invalid Telegram login data' });
     }
 
-    const telegramId = user.id?.toString();
-    const username = user.username || '';
-    const firstName = user.first_name || '';
-    const lastName = user.last_name || '';
-    const photoUrl = user.photo_url || '';
+    // Parse user AFTER verification
+    const userStr = params.get('user');
+    const user = userStr ? JSON.parse(userStr) : null;
+    if (!user?.id) return res.status(400).json({ success: false, error: 'Invalid Telegram user data' });
 
-    if (!telegramId) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'Invalid Telegram user data' 
-      });
-    }
-
+    const telegramId = String(user.id);
     let wallet = await Wallet.findOne({ telegramId });
-
     if (!wallet) {
       wallet = new Wallet({
         walletAddress: `tg_${telegramId}`,
         telegramId,
-        telegramUsername: username,
-        telegramFirstName: firstName,
-        telegramLastName: lastName,
-        telegramPhotoUrl: photoUrl,
+        telegramUsername: user.username || null,
+        telegramFirstName: user.first_name || null,
+        telegramLastName: user.last_name || null,
+        telegramPhotoUrl: user.photo_url || null,
         tasks: [
           { name: 'Join Telegram', reward: 0.01, completed: true },
           { name: 'On board 2 friends', reward: 0.02, completed: false },
           { name: 'On board 5 friends', reward: 0.05, completed: false },
         ],
         totalReward: 0.01,
-        telegramConnected: true
+        telegramConnected: true,
       });
     } else {
-      wallet.telegramUsername = username;
-      wallet.telegramFirstName = firstName;
-      wallet.telegramLastName = lastName;
-      wallet.telegramPhotoUrl = photoUrl;
+      wallet.telegramUsername = user.username || wallet.telegramUsername;
+      wallet.telegramFirstName = user.first_name || wallet.telegramFirstName;
+      wallet.telegramLastName = user.last_name || wallet.telegramLastName;
+      wallet.telegramPhotoUrl = user.photo_url || wallet.telegramPhotoUrl;
       wallet.telegramConnected = true;
     }
-
     await wallet.save();
 
-    console.log('✅ Telegram user saved:', wallet.telegramFirstName);
-
-    res.json({
-      success: true,
-      message: 'Telegram login successful',
-      data: wallet,
-      user: { telegramId, username, firstName, lastName, photoUrl }
-    });
+    res.json({ success: true, message: 'Telegram login successful', data: wallet });
   } catch (err) {
-    console.error('❌ Telegram login error:', err);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Server error',
-      message: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
+    console.error('telegram-login error', err);
+    res.status(500).json({ success: false, error: 'Server error' });
   }
 });
 
