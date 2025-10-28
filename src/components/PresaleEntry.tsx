@@ -23,16 +23,29 @@ const PresaleEntry: React.FC = () => {
   const [telegramError, setTelegramError] = useState<string | null>(null);
   const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
   const [hasTriedToConnect, setHasTriedToConnect] = useState<boolean>(false);
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
-  // ✅ Get Telegram user data - mobile compatible
+  // ✅ Get Telegram user data - works on mobile & web
   useEffect(() => {
-    const initTelegram = async () => {
+    let retryCount = 0;
+    const maxRetries = 10;
+
+    const initTelegram = () => {
       try {
+        // Check if Telegram WebApp is available
         const tg = (window as any).Telegram?.WebApp;
         
         if (!tg) {
-          console.warn('⚠️ Telegram WebApp not available');
-          setTelegramError('Not running in Telegram');
+          retryCount++;
+          setDebugInfo(`Retry ${retryCount}/${maxRetries} - Waiting for Telegram SDK...`);
+          
+          if (retryCount < maxRetries) {
+            setTimeout(initTelegram, 500);
+            return;
+          }
+          
+          console.error('❌ Telegram WebApp SDK not available after retries');
+          setTelegramError('Not running in Telegram app');
           setIsLoadingTelegram(false);
           return;
         }
@@ -40,10 +53,17 @@ const PresaleEntry: React.FC = () => {
         // Initialize Telegram WebApp
         tg.ready();
         tg.expand();
+        
+        // Disable vertical swipes to close
+        tg.disableVerticalSwipes?.();
 
-        console.log('📱 Telegram WebApp initialized');
-        console.log('🔍 initData available:', !!tg.initData);
-        console.log('👤 initDataUnsafe.user:', tg.initDataUnsafe?.user);
+        console.log('📱 Telegram WebApp SDK loaded');
+        console.log('🔍 Platform:', tg.platform);
+        console.log('🔍 Version:', tg.version);
+        console.log('🔍 initData length:', tg.initData?.length || 0);
+        console.log('👤 User:', tg.initDataUnsafe?.user);
+
+        setDebugInfo(`Platform: ${tg.platform}, Version: ${tg.version}`);
 
         // Get user from initDataUnsafe (always available)
         const user = tg.initDataUnsafe?.user;
@@ -51,53 +71,56 @@ const PresaleEntry: React.FC = () => {
         if (user && user.id) {
           console.log('✅ Telegram user found:', user);
           setTelegramUser(user);
+          localStorage.setItem('telegramUser', JSON.stringify(user));
           
-          // Try to send with initData validation (web)
+          // Try validated login first (works on web)
           const initData = tg.initData;
           if (initData && typeof initData === 'string' && initData.length > 0) {
-            console.log('📤 Sending validated Telegram login (web)');
-            await saveTelegramUserToBackend(initData, user);
+            console.log('📤 Using validated login (web)');
+            saveTelegramUserToBackend(initData, user);
           } else {
-            // Fallback: mobile without initData
-            console.log('📱 Using mobile fallback (no initData)');
-            await saveTelegramUserMobile(user);
+            // Mobile fallback
+            console.log('📱 Using mobile fallback');
+            saveTelegramUserMobile(user);
           }
           
           setTelegramError(null);
         } else {
-          // Try cached data as last resort
+          // Try cached data
           const cached = localStorage.getItem('telegramUser');
           if (cached) {
             try {
               const parsedUser = JSON.parse(cached);
-              console.log('📦 Loaded cached Telegram user:', parsedUser);
+              console.log('📦 Using cached user data');
               setTelegramUser(parsedUser);
               setTelegramError(null);
             } catch (e) {
               console.error('❌ Failed to parse cached user:', e);
-              setTelegramError('Failed to load Telegram data');
+              setTelegramError('Failed to load user data');
             }
           } else {
-            setTelegramError('Telegram user data not available');
+            console.error('❌ No user data available');
+            setTelegramError('User data not available');
           }
         }
+        
+        setIsLoadingTelegram(false);
       } catch (error) {
         console.error('❌ Error initializing Telegram:', error);
-        setTelegramError('Failed to initialize Telegram');
-      } finally {
+        setTelegramError(`Initialization error: ${(error as Error).message}`);
         setIsLoadingTelegram(false);
       }
     };
 
-    // Small delay to ensure WebApp is ready
-    const timer = setTimeout(initTelegram, 500);
+    // Start initialization after a small delay
+    const timer = setTimeout(initTelegram, 300);
     return () => clearTimeout(timer);
   }, []);
 
   // ✅ Save with hash validation (Telegram Web)
   const saveTelegramUserToBackend = async (initData: string, user: TelegramUser): Promise<void> => {
     try {
-      console.log('📤 Sending validated Telegram login...');
+      console.log('📤 Sending validated login...');
       const response = await axios.post(
         `${BACKEND_URL}/api/telegram-login`,
         { initData },
@@ -108,12 +131,11 @@ const PresaleEntry: React.FC = () => {
       );
 
       if (response.data.success) {
-        console.log('✅ Telegram user saved (validated):', response.data);
-        localStorage.setItem('telegramUser', JSON.stringify(user));
+        console.log('✅ Validated login successful');
       }
     } catch (error) {
-      console.error('❌ Validated login failed, trying mobile fallback:', error);
-      // If validation fails, use mobile method
+      console.error('⚠️ Validated login failed, using mobile fallback:', error);
+      // Fallback to mobile method
       await saveTelegramUserMobile(user);
     }
   };
@@ -121,7 +143,7 @@ const PresaleEntry: React.FC = () => {
   // ✅ Mobile fallback (no hash validation)
   const saveTelegramUserMobile = async (user: TelegramUser): Promise<void> => {
     try {
-      console.log('📱 Sending mobile Telegram login...');
+      console.log('📱 Sending mobile login...');
       const response = await axios.post(
         `${BACKEND_URL}/api/telegram-login-mobile`,
         { telegramUser: user },
@@ -132,16 +154,14 @@ const PresaleEntry: React.FC = () => {
       );
 
       if (response.data.success) {
-        console.log('✅ Mobile Telegram user saved:', response.data);
-        localStorage.setItem('telegramUser', JSON.stringify(user));
+        console.log('✅ Mobile login successful');
       }
     } catch (error) {
       console.error('❌ Mobile login failed:', error);
-      throw error;
     }
   };
 
-  // ✅ Link wallet to Telegram when wallet connects
+  // ✅ Link wallet to Telegram
   useEffect(() => {
     if (isConnected && address && telegramUser) {
       linkWalletToTelegram();
@@ -152,7 +172,7 @@ const PresaleEntry: React.FC = () => {
     if (!address || !telegramUser) return;
 
     try {
-      console.log('🔗 Linking wallet to Telegram account...');
+      console.log('🔗 Linking wallet...');
       await axios.post(
         `${BACKEND_URL}/api/link-telegram`,
         {
@@ -164,13 +184,13 @@ const PresaleEntry: React.FC = () => {
           timeout: 10000,
         }
       );
-      console.log('✅ Wallet linked to Telegram');
+      console.log('✅ Wallet linked');
     } catch (error) {
-      console.error('❌ Failed to link wallet to Telegram:', error);
+      console.error('❌ Failed to link wallet:', error);
     }
   };
 
-  // ✅ Show instructions when connecting
+  // ✅ Show instructions
   useEffect(() => {
     if (isConnecting) {
       setShowInstructions(true);
@@ -180,23 +200,16 @@ const PresaleEntry: React.FC = () => {
     }
   }, [isConnecting]);
 
-  // ✅ Poll for connection changes
+  // ✅ Poll for connection
   useEffect(() => {
     if (hasTriedToConnect && !isConnected && !isConnecting) {
-      console.log('🔄 Polling for wallet connection...');
-      
       const pollInterval = setInterval(() => {
         if (isConnected) {
-          console.log('✅ Connection detected!');
           clearInterval(pollInterval);
         }
       }, 2000);
 
-      const timeout = setTimeout(() => {
-        clearInterval(pollInterval);
-        console.log('⏱️ Stopped polling');
-      }, 120000);
-
+      const timeout = setTimeout(() => clearInterval(pollInterval), 120000);
       return () => {
         clearInterval(pollInterval);
         clearTimeout(timeout);
@@ -215,8 +228,9 @@ const PresaleEntry: React.FC = () => {
 
         {/* Telegram User Info */}
         {isLoadingTelegram ? (
-          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm text-blue-300 animate-pulse">
-            🔄 Loading Telegram data...
+          <div className="mb-4 p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg animate-pulse">
+            <p className="text-blue-300 text-sm">🔄 Loading Telegram data...</p>
+            {debugInfo && <p className="text-blue-400 text-xs mt-1">{debugInfo}</p>}
           </div>
         ) : telegramUser ? (
           <div className="mb-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-lg">
@@ -245,12 +259,13 @@ const PresaleEntry: React.FC = () => {
             <p className="text-green-400 text-xs">✅ Telegram login successful</p>
           </div>
         ) : (
-          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-sm text-red-300">
-            🔴 {telegramError || 'Waiting for Telegram user data. This may be delayed on mobile.'}
+          <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <p className="text-red-300 text-sm">🔴 {telegramError}</p>
+            {debugInfo && <p className="text-red-400 text-xs mt-1">{debugInfo}</p>}
           </div>
         )}
 
-        {/* Wallet Connection Status */}
+        {/* Wallet Status */}
         <div className="mb-6">
           {isConnected && address ? (
             <div className="p-3 bg-green-500/10 border border-green-500/30 rounded">
@@ -260,7 +275,7 @@ const PresaleEntry: React.FC = () => {
           ) : hasTriedToConnect && !isConnecting ? (
             <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded animate-pulse">
               <p className="text-yellow-400 font-semibold">⏳ Waiting for confirmation...</p>
-              <p className="text-yellow-300 text-xs mt-1">Return to Telegram after approving in MetaMask</p>
+              <p className="text-yellow-300 text-xs mt-1">Return to Telegram after approving</p>
             </div>
           ) : isConnecting ? (
             <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded">
@@ -287,32 +302,20 @@ const PresaleEntry: React.FC = () => {
               <appkit-button />
             </div>
             <p className="text-gray-400 text-sm">
-              {!telegramUser 
-                ? 'Waiting for Telegram login...' 
-                : 'Connect your wallet to continue'}
+              {!telegramUser ? 'Waiting for Telegram...' : 'Connect wallet to continue'}
             </p>
           </div>
         )}
 
         {/* Instructions */}
         {showInstructions && (
-          <div className="mt-4 p-4 border border-yellow-500/30 bg-yellow-500/10 rounded-lg text-sm text-left animate-pulse">
-            <p className="text-yellow-300 font-bold mb-2">📱 Important Steps:</p>
+          <div className="mt-4 p-4 border border-yellow-500/30 bg-yellow-500/10 rounded-lg text-sm text-left">
+            <p className="text-yellow-300 font-bold mb-2">📱 Steps:</p>
             <ol className="list-decimal list-inside text-yellow-200 space-y-1">
-              <li>MetaMask should open automatically</li>
-              <li>Tap "Connect" in MetaMask</li>
-              <li><strong>Return to Telegram immediately</strong></li>
-              <li>Wait for confirmation (auto-detects)</li>
+              <li>Approve in MetaMask</li>
+              <li>Return to Telegram</li>
+              <li>Wait for auto-detection</li>
             </ol>
-          </div>
-        )}
-
-        {/* Debug info (remove in production) */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="mt-4 p-2 bg-gray-800 rounded text-xs text-left">
-            <p>Backend: {BACKEND_URL}</p>
-            <p>TG User: {telegramUser ? '✅' : '❌'}</p>
-            <p>Wallet: {isConnected ? '✅' : '❌'}</p>
           </div>
         )}
       </div>

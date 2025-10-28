@@ -9,13 +9,12 @@ const rollupOutput = {
   entryFileNames: "assets/[name]-[hash].js",
   chunkFileNames: "assets/[name]-[hash].js",
   assetFileNames: (assetInfo: { name?: string }) => {
-    // keep images/css/fonts under assets too
     return "assets/[name]-[hash][extname]";
   },
 };
 
 export default defineConfig({
-  base: "/",                   // ensure relative paths in output
+  base: "/",
   plugins: [
     react(),
     svgr(),
@@ -29,7 +28,6 @@ export default defineConfig({
         params: { [constants.BROTLI_PARAM_QUALITY]: 11 },
       },
       deleteOriginFile: false,
-      // Only compress typical text assets
       filter: /\.(js|css|html|svg)$/i,
       verbose: false,
     }),
@@ -46,32 +44,60 @@ export default defineConfig({
   ],
 
   build: {
-    outDir: "dist",            // explicit (default, but we force it)
-    assetsDir: "assets",       // explicit subdir
+    outDir: "dist",
+    assetsDir: "assets",
     target: "es2020",
-    sourcemap: false,
+    sourcemap: true, // ✅ Enable for debugging mobile issues
     cssCodeSplit: true,
-    assetsInlineLimit: 0,      // better caching
+    assetsInlineLimit: 4096, // ✅ Changed to 4KB for better balance
     chunkSizeWarningLimit: 1000,
     minify: "esbuild",
-   
 
     rollupOptions: {
-      output: rollupOutput,    // <� enforce relative asset paths
+      output: rollupOutput,
     },
 
-    commonjsOptions: { transformMixedEsModules: true },
+    commonjsOptions: { 
+      transformMixedEsModules: true 
+    },
   },
-  esbuild: { drop: ["console", "debugger"] },
 
-   server: {
+  esbuild: { 
+    drop: process.env.NODE_ENV === 'production' ? ["console", "debugger"] : [], // ✅ Keep logs in dev
+  },
+
+  server: {
     host: '0.0.0.0',
     port: 5173,
- allowedHosts: [
-    'token.buycex.com',
-    '.ngrok-free.dev',
-    'arkansas-saint-fellowship-chip.trycloudflare.com', // ✅ add this
-  ],
+    strictPort: true, // ✅ Fail if port is in use
+    allowedHosts: [
+      'localhost',
+      '127.0.0.1',
+      'token.buycex.com',
+      'minicheck.vercel.app', // ✅ Add your Vercel domain
+      '.ngrok-free.dev',
+      'arkansas-saint-fellowship-chip.trycloudflare.com',
+    ],
+    // ✅ Add CORS headers for development
+    cors: true,
+    // ✅ Proxy if needed
+    proxy: {
+      '/api': {
+        target: process.env.VITE_BACKEND_URL || 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false,
+      },
+    },
   },
 
+  // ✅ Optimize dependencies
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom'],
+    exclude: ['@twa-dev/sdk'], // ✅ Don't pre-bundle Telegram SDK
+  },
+
+  // ✅ Define global constants
+  define: {
+    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
+  },
 });
