@@ -33,103 +33,59 @@ const PresaleEntry: React.FC = () => {
   const [validationStatus, setValidationStatus] = useState<'pending' | 'validated' | 'fallback'>('pending');
 
   useEffect(() => {
-    const initTelegram = () => {
-      console.log('🚀 Initializing Telegram WebApp...');
-      console.log('SDK Ready:', window.__TELEGRAM_SDK_READY__);
-      console.log('SDK Error:', window.__TELEGRAM_SDK_ERROR__);
-      console.log('window.Telegram exists:', !!window.Telegram);
+    console.log('🚀 Component mounted, checking Telegram...');
+    
+    let checkCount = 0;
+    const maxChecks = 40; // 40 * 500ms = 20 seconds
+    
+    const checkTelegram = () => {
+      checkCount++;
+      console.log(`🔍 Attempt ${checkCount}/${maxChecks}`);
+      console.log('window.Telegram:', !!window.Telegram);
+      console.log('SDK Ready flag:', window.__TELEGRAM_SDK_READY__);
       
-      const tg = window.Telegram?.WebApp;
+      // ✅ Try to access directly
+      const tg = (window as any).Telegram?.WebApp;
       
-      if (!tg) {
-        console.error('❌ Telegram SDK not available');
-        console.log('Current URL:', window.location.href);
-        console.log('User Agent:', navigator.userAgent);
+      if (tg) {
+        console.log('✅ Telegram found!');
+        console.log('Platform:', tg.platform);
+        console.log('Version:', tg.version);
+        console.log('InitData:', tg.initData ? 'EXISTS' : 'MISSING');
+        console.log('InitDataUnsafe:', tg.initDataUnsafe);
         
-        // Check if we're in Telegram context
-        const isTelegramContext = navigator.userAgent.includes('Telegram') || 
-                                  window.location.search.includes('tgWebAppData') ||
-                                  window.location.hash.includes('tgWebAppData');
+        const user = tg.initDataUnsafe?.user;
         
-        if (!isTelegramContext) {
-          setTelegramError('⚠️ Please open this app from @Buycex_presale_bot in Telegram');
+        if (user?.id) {
+          console.log('✅ User:', user.first_name, user.id);
+          setTelegramUser(user);
+          
+          // Save user
+          const initDataRaw = tg.initData;
+          if (initDataRaw) {
+            saveTelegramUserValidated(initDataRaw, user);
+          } else {
+            saveTelegramUserMobile(user);
+          }
+          
+          setIsLoading(false);
         } else {
-          setTelegramError('❌ Telegram SDK failed to load.\n\nPlease try:\n1. Close and reopen the bot\n2. Restart Telegram app\n3. Update Telegram to latest version');
+          console.warn('⚠️ No user in initDataUnsafe');
+          setTelegramError('No user data. Please restart bot.');
+          setIsLoading(false);
         }
-        
-        setIsLoading(false);
-        return;
-      }
-
-      console.log('✅ Telegram SDK found');
-      console.log('Platform:', tg.platform);
-      console.log('Version:', tg.version);
-      console.log('InitData available:', !!tg.initData);
-      console.log('InitData length:', tg.initData?.length || 0);
-      console.log('InitDataUnsafe:', JSON.stringify(tg.initDataUnsafe, null, 2));
-      
-      const user = tg.initDataUnsafe?.user;
-
-      if (!user?.id) {
-        console.error('❌ No user data in initDataUnsafe');
-        console.log('Full initDataUnsafe:', tg.initDataUnsafe);
-        console.log('Full initData:', tg.initData);
-        setTelegramError('No user data available.\n\nPlease close and reopen the bot.');
-        setIsLoading(false);
-        return;
-      }
-
-      console.log('✅ User found:', {
-        id: user.id,
-        first_name: user.first_name,
-        username: user.username,
-        is_premium: user.is_premium
-      });
-
-      setTelegramUser(user);
-      setTelegramError(null);
-
-      const initDataRaw = tg.initData;
-      
-      if (initDataRaw && initDataRaw.length > 0) {
-        console.log('📤 Sending initData for validation...');
-        console.log('InitData preview:', initDataRaw.substring(0, 100) + '...');
-        saveTelegramUserValidated(initDataRaw, user);
+      } else if (checkCount < maxChecks) {
+        console.log('⏳ Not ready yet, checking again...');
+        setTimeout(checkTelegram, 500);
       } else {
-        console.warn('⚠️ No initData available, using fallback');
-        setValidationStatus('fallback');
-        saveTelegramUserMobile(user);
-      }
-      
-      setIsLoading(false);
-    };
-
-    let checkAttempts = 0;
-    const maxCheckAttempts = 30; // 30 attempts = 9 seconds
-
-    const checkSDK = () => {
-      checkAttempts++;
-      console.log(`🔍 Check ${checkAttempts}/${maxCheckAttempts} - SDK Ready:`, window.__TELEGRAM_SDK_READY__);
-      
-      if (window.__TELEGRAM_SDK_READY__ === true) {
-        console.log('✅ SDK is ready, initializing...');
-        initTelegram();
-      } else if (window.__TELEGRAM_SDK_READY__ === false) {
-        console.error('❌ SDK failed to load:', window.__TELEGRAM_SDK_ERROR__);
-        setTelegramError(`Telegram SDK failed to load.\n\nError: ${window.__TELEGRAM_SDK_ERROR__ || 'Unknown'}`);
+        console.error('❌ Timeout - SDK never loaded');
+        setTelegramError('Telegram SDK failed to load. Please open from @Buycex_presale_bot');
         setIsLoading(false);
-      } else if (checkAttempts >= maxCheckAttempts) {
-        console.error('❌ SDK check timeout');
-        setTelegramError('Loading timeout.\n\nPlease restart the bot.');
-        setIsLoading(false);
-      } else {
-        console.log('⏳ Waiting for SDK...');
-        setTimeout(checkSDK, 300);
       }
     };
-
-    // ✅ Start checking after 1 second (give mobile more time)
-    setTimeout(checkSDK, 1000);
+    
+    // Start checking after 2 seconds (give mobile time)
+    setTimeout(checkTelegram, 2000);
   }, []);
 
   const saveTelegramUserValidated = async (initDataRaw: string, user: TelegramUser) => {
@@ -148,11 +104,10 @@ const PresaleEntry: React.FC = () => {
         }
       );
       
-      console.log('✅ User validated and saved:', response.data);
+      console.log('✅ User validated:', response.data);
       setValidationStatus('validated');
     } catch (error: any) {
       console.error('❌ Validation failed:', error.response?.data || error.message);
-      console.warn('⚠️ Falling back to mobile method');
       setValidationStatus('fallback');
       saveTelegramUserMobile(user);
     }
@@ -160,7 +115,7 @@ const PresaleEntry: React.FC = () => {
 
   const saveTelegramUserMobile = async (user: TelegramUser) => {
     try {
-      console.log('📱 Saving user (mobile fallback)...');
+      console.log('📱 Saving user (fallback)...');
       const response = await axios.post(
         `${BACKEND_URL}/api/telegram-login-mobile`,
         { telegramUser: user },
@@ -172,7 +127,7 @@ const PresaleEntry: React.FC = () => {
           timeout: 10000
         }
       );
-      console.log('✅ User saved (mobile):', response.data);
+      console.log('✅ User saved:', response.data);
     } catch (error: any) {
       console.error('❌ Save failed:', error.response?.data || error.message);
     }
@@ -215,15 +170,12 @@ const PresaleEntry: React.FC = () => {
       <div className="flex h-screen items-center justify-center bg-black text-white">
         <div className="text-center px-4">
           <div className="mb-4 text-4xl">⏳</div>
-          <p className="text-xl">Loading Telegram...</p>
-          <p className="text-sm text-gray-400 mt-2">
-            {window.__TELEGRAM_SDK_READY__ === undefined ? 'Initializing SDK...' : 'Processing...'}
+          <p className="text-xl">Loading...</p>
+          <p className="text-sm text-gray-400 mt-2">Waiting for Telegram SDK...</p>
+          <p className="text-xs text-gray-500 mt-4">
+            If stuck for more than 10 seconds:<br />
+            Close and reopen the bot
           </p>
-          <div className="mt-4 text-xs text-gray-500">
-            <p>If stuck, try:</p>
-            <p>• Close and reopen bot</p>
-            <p>• Restart Telegram app</p>
-          </div>
         </div>
       </div>
     );
