@@ -1,7 +1,11 @@
 'use client'
 
-import WebApp from '@twa-dev/sdk'
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
+import { NavLink } from 'react-router-dom'
+import { useAccount } from 'wagmi'
+import axios from 'axios'
+import * as WebApp from '@twa-dev/sdk'  // ✅ Namespace import for Vite
+import buycexlogo from '../assets/img/BUYCEX-INFINITY.png'
 
 // Define the interface for user data
 interface UserData {

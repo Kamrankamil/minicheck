@@ -92,7 +92,7 @@ export default defineConfig({
 
   // ✅ Optimize dependencies
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react-router-dom'],
+    include: ['react', 'react-dom', 'react-router-dom',  '@twa-dev/sdk' ],
     exclude: ['@twa-dev/sdk'], // ✅ Don't pre-bundle Telegram SDK
   },
 
