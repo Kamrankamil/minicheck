@@ -27,43 +27,23 @@ const PresaleEntry: React.FC = () => {
 
   const [showInstructions, setShowInstructions] = useState(false)
   const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null)
-  const [telegramError, setTelegramError] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
   const [validationStatus, setValidationStatus] =
     useState<'pending' | 'validated' | 'fallback'>('pending')
 
   useEffect(() => {
-    // Initialize Telegram WebApp (works on mobile)
-    try {
-      WebApp.ready()
-      WebApp.expand?.()
-      WebApp.disableVerticalSwipes?.()
-      WebApp.setBackgroundColor?.('#000000')
-    } catch {
-      /* noop */
+    // ✅ Read immediately on mount (like the working repo)
+    if (WebApp.initDataUnsafe?.user) {
+      const user = WebApp.initDataUnsafe.user as TelegramUser
+      setTelegramUser(user)
+
+      const initDataRaw = WebApp.initData
+      if (initDataRaw && initDataRaw.length > 0) {
+        saveTelegramUserValidated(initDataRaw, user)
+      } else {
+        setValidationStatus('fallback')
+        saveTelegramUserMobile(user)
+      }
     }
-
-    // Read user from Telegram
-    const user = WebApp.initDataUnsafe?.user as TelegramUser | undefined
-
-    if (!user?.id) {
-      setTelegramError('Open this app from @Buycex_presale_bot in Telegram.')
-      setIsLoading(false)
-      return
-    }
-
-    setTelegramUser(user)
-    setTelegramError(null)
-
-    const initDataRaw = WebApp.initData
-    if (initDataRaw && initDataRaw.length > 0) {
-      saveTelegramUserValidated(initDataRaw, user)
-    } else {
-      setValidationStatus('fallback')
-      saveTelegramUserMobile(user)
-    }
-
-    setIsLoading(false)
   }, [])
 
   const saveTelegramUserValidated = async (
@@ -82,10 +62,10 @@ const PresaleEntry: React.FC = () => {
           timeout: 10000
         }
       )
-      console.log('Validated:', res.data)
+      console.log('✅ Validated:', res.data)
       setValidationStatus('validated')
     } catch (err: any) {
-      console.warn('Validation failed, using fallback', err?.response?.data || err?.message)
+      console.warn('⚠️ Validation failed, using fallback')
       setValidationStatus('fallback')
       saveTelegramUserMobile(user)
     }
@@ -104,9 +84,9 @@ const PresaleEntry: React.FC = () => {
           timeout: 10000
         }
       )
-      console.log('Saved (mobile):', res.data)
+      console.log('✅ Saved (mobile):', res.data)
     } catch (err: any) {
-      console.error('Save (mobile) failed:', err?.response?.data || err?.message)
+      console.error('❌ Save failed:', err?.response?.data || err?.message)
     }
   }
 
@@ -114,7 +94,6 @@ const PresaleEntry: React.FC = () => {
     if (isConnected && address && telegramUser) {
       linkWallet()
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isConnected, address, telegramUser])
 
   const linkWallet = async () => {
@@ -132,27 +111,15 @@ const PresaleEntry: React.FC = () => {
           }
         }
       )
-      console.log('Wallet linked:', res.data)
+      console.log('✅ Wallet linked:', res.data)
     } catch (err: any) {
-      console.error('Link wallet failed:', err?.response?.data || err?.message)
+      console.error('❌ Link failed:', err?.response?.data || err?.message)
     }
   }
 
   useEffect(() => {
     setShowInstructions(isConnecting)
   }, [isConnecting])
-
-  if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-black text-white">
-        <div className="text-center px-4">
-          <div className="mb-4 text-4xl">⏳</div>
-          <p className="text-xl">Loading...</p>
-          <p className="text-sm text-gray-400 mt-2">Initializing Telegram…</p>
-        </div>
-      </div>
-    )
-  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-black text-white p-4">
@@ -197,16 +164,9 @@ const PresaleEntry: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-            <p className="text-red-300 text-sm whitespace-pre-line">
-              {telegramError || 'Telegram not available'}
-            </p>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-3 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 rounded text-red-300 text-sm active:bg-red-500/40"
-            >
-              🔄 Retry
-            </button>
+          <div className="mb-4 p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg">
+            <p className="text-yellow-300 text-sm">⚠️ Open this app from @Buycex_presale_bot</p>
+            <p className="text-yellow-400 text-xs mt-2">Click the button in the bot message</p>
           </div>
         )}
 
@@ -252,6 +212,27 @@ const PresaleEntry: React.FC = () => {
               <li>Wait for confirmation</li>
             </ol>
           </div>
+        )}
+
+        {/* Debug info in dev mode */}
+        {import.meta.env.DEV && (
+          <details className="mt-4 text-left">
+            <summary className="text-xs text-gray-500 cursor-pointer">Debug Info</summary>
+            <pre className="text-xs text-gray-400 mt-2 p-2 bg-gray-900 rounded overflow-auto">
+              {JSON.stringify(
+                {
+                  hasTelegramUser: !!telegramUser,
+                  userId: telegramUser?.id,
+                  platform: WebApp.platform,
+                  version: WebApp.version,
+                  hasInitData: !!WebApp.initData,
+                  validationStatus
+                },
+                null,
+                2
+              )}
+            </pre>
+          </details>
         )}
       </div>
     </div>
