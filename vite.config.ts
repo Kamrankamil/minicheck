@@ -47,9 +47,9 @@ export default defineConfig({
     outDir: "dist",
     assetsDir: "assets",
     target: "es2020",
-    sourcemap: true, // ✅ Enable for debugging mobile issues
+    sourcemap: true,
     cssCodeSplit: true,
-    assetsInlineLimit: 4096, // ✅ Changed to 4KB for better balance
+    assetsInlineLimit: 4096,
     chunkSizeWarningLimit: 1000,
     minify: "esbuild",
 
@@ -63,24 +63,22 @@ export default defineConfig({
   },
 
   esbuild: { 
-    drop: process.env.NODE_ENV === 'production' ? ["console", "debugger"] : [], // ✅ Keep logs in dev
+    drop: process.env.NODE_ENV === 'production' ? ["console", "debugger"] : [],
   },
 
   server: {
     host: '0.0.0.0',
     port: 5173,
-    strictPort: true, // ✅ Fail if port is in use
+    strictPort: true,
     allowedHosts: [
       'localhost',
       '127.0.0.1',
       'token.buycex.com',
-      'minicheck.vercel.app', // ✅ Add your Vercel domain
+      'minicheck.vercel.app',
       '.ngrok-free.dev',
       'arkansas-saint-fellowship-chip.trycloudflare.com',
     ],
-    // ✅ Add CORS headers for development
     cors: true,
-    // ✅ Proxy if needed
     proxy: {
       '/api': {
         target: process.env.VITE_BACKEND_URL || 'http://localhost:5000',
@@ -90,10 +88,14 @@ export default defineConfig({
     },
   },
 
-  // ✅ Optimize dependencies
+  // ✅ FIXED: Include @twa-dev/sdk for proper bundling
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react-router-dom',  '@twa-dev/sdk' ],
-    exclude: ['@twa-dev/sdk'], // ✅ Don't pre-bundle Telegram SDK
+    include: [
+      'react', 
+      'react-dom', 
+      'react-router-dom',
+      '@twa-dev/sdk'  // ✅ Added this
+    ],
   },
 
   // ✅ Define global constants
