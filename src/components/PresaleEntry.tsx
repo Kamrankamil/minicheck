@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAccount } from 'wagmi'
 import axios from 'axios'
-import WebApp from '@twa-dev/sdk'  // ✅ Use default import
+import WebApp from '@twa-dev/sdk'
 import buycexlogo from '../assets/img/BUYCEX-INFINITY.png'
 
 const BACKEND_URL =
@@ -29,21 +29,53 @@ const PresaleEntry: React.FC = () => {
   const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null)
   const [validationStatus, setValidationStatus] =
     useState<'pending' | 'validated' | 'fallback'>('pending')
+  const [isReady, setIsReady] = useState(false)
 
   useEffect(() => {
-    // ✅ Read immediately on mount
+    // ✅ Force display and expand
+    try {
+      WebApp.ready()
+      WebApp.expand()
+      
+      // Set theme colors
+      if (WebApp.setHeaderColor) {
+        WebApp.setHeaderColor('#000000')
+      }
+      if (WebApp.setBackgroundColor) {
+        WebApp.setBackgroundColor('#000000')
+      }
+    } catch (e) {
+      console.error('WebApp init error:', e)
+    }
+
+    // Log everything for debugging
+    console.log('🔍 WebApp Debug:')
+    console.log('- Platform:', WebApp.platform)
+    console.log('- Version:', WebApp.version)
+    console.log('- initData:', WebApp.initData)
+    console.log('- initDataUnsafe:', WebApp.initDataUnsafe)
+    console.log('- User:', WebApp.initDataUnsafe?.user)
+
+    // Read user data
     if (WebApp.initDataUnsafe?.user) {
       const user = WebApp.initDataUnsafe.user as TelegramUser
+      console.log('✅ User found:', user)
       setTelegramUser(user)
 
       const initDataRaw = WebApp.initData
       if (initDataRaw && initDataRaw.length > 0) {
         saveTelegramUserValidated(initDataRaw, user)
       } else {
+        console.warn('⚠️ No initData, using fallback')
         setValidationStatus('fallback')
         saveTelegramUserMobile(user)
       }
+    } else {
+      console.warn('❌ No user in initDataUnsafe')
     }
+
+    // Mark as ready
+    setIsReady(true)
   }, [])
 
   const saveTelegramUserValidated = async (
@@ -65,7 +97,7 @@ const PresaleEntry: React.FC = () => {
       console.log('✅ Validated:', res.data)
       setValidationStatus('validated')
     } catch (err: any) {
-      console.warn('⚠️ Validation failed, using fallback')
+      console.warn('⚠️ Validation failed:', err?.response?.data || err?.message)
       setValidationStatus('fallback')
       saveTelegramUserMobile(user)
     }
@@ -120,6 +152,26 @@ const PresaleEntry: React.FC = () => {
   useEffect(() => {
     setShowInstructions(isConnecting)
   }, [isConnecting])
+
+  // ✅ Show loading until ready
+  if (!isReady) {
+    return (
+      <div style={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        minHeight: '100vh',
+        background: '#000',
+        color: '#fff',
+        fontFamily: 'system-ui'
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏳</div>
+          <p style={{ fontSize: '20px' }}>Loading...</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-black text-white p-4">
@@ -214,26 +266,25 @@ const PresaleEntry: React.FC = () => {
           </div>
         )}
 
-        {/* Debug info in dev mode */}
-        {import.meta.env.DEV && (
-          <details className="mt-4 text-left">
-            <summary className="text-xs text-gray-500 cursor-pointer">Debug Info</summary>
-            <pre className="text-xs text-gray-400 mt-2 p-2 bg-gray-900 rounded overflow-auto">
-              {JSON.stringify(
-                {
-                  hasTelegramUser: !!telegramUser,
-                  userId: telegramUser?.id,
-                  platform: WebApp.platform,
-                  version: WebApp.version,
-                  hasInitData: !!WebApp.initData,
-                  validationStatus
-                },
-                null,
-                2
-              )}
-            </pre>
-          </details>
-        )}
+        {/* Debug panel */}
+        <details className="mt-4 text-left">
+          <summary className="text-xs text-gray-500 cursor-pointer">🔍 Debug Info</summary>
+          <pre className="text-xs text-gray-400 mt-2 p-2 bg-gray-900 rounded overflow-auto max-h-40">
+            {JSON.stringify(
+              {
+                isReady,
+                hasTelegramUser: !!telegramUser,
+                userId: telegramUser?.id,
+                platform: WebApp.platform,
+                version: WebApp.version,
+                hasInitData: !!WebApp.initData,
+                validationStatus
+              },
+              null,
+              2
+            )}
+          </pre>
+        </details>
       </div>
     </div>
   )

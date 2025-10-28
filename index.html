@@ -7,9 +7,8 @@
     <meta name="theme-color" content="#000000" />
     <title>Buycex Presale</title>
     
-    <!-- ✅ Load Telegram SDK FIRST (like Next.js beforeInteractive) -->
-            <Script src="https://telegram.org/js/telegram-web-app.js" strategy="beforeInteractive" />
-
+    <!-- ✅ Remove strategy attribute - it's a Next.js thing, not HTML -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
     <div id="root"></div>
