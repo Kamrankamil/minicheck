@@ -12,6 +12,17 @@ interface TelegramUser {
   last_name?: string;
   username?: string;
   photo_url?: string;
+  language_code?: string;
+  is_premium?: boolean;
+  allows_write_to_pm?: boolean;
+}
+
+// ✅ Type declarations for window properties
+declare global {
+  interface Window {
+    __TELEGRAM_SDK_READY__?: boolean;
+    __TELEGRAM_SDK_ERROR__?: string;
+  }
 }
 
 const PresaleEntry: React.FC = () => {
@@ -20,18 +31,20 @@ const PresaleEntry: React.FC = () => {
   const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
   const [telegramError, setTelegramError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [validationStatus, setValidationStatus] = useState<'pending' | 'validated' | 'fallback'>('pending');
 
   useEffect(() => {
     const initTelegram = () => {
-      console.log('🚀 Initializing Telegram...');
+      console.log('🚀 Initializing Telegram WebApp...');
+      console.log('SDK Ready:', window.__TELEGRAM_SDK_READY__);
       
-      // Direct access to Telegram SDK
-      const tg = (window as any).Telegram?.WebApp;
+      const tg = window.Telegram?.WebApp;
       
       if (!tg) {
         console.error('❌ Telegram SDK not available');
-        console.log('window.Telegram:', (window as any).Telegram);
-        setTelegramError('Not running in Telegram app. Please open via bot button.');
+        console.log('window.Telegram:', window.Telegram);
+        console.log('SDK Error:', window.__TELEGRAM_SDK_ERROR__);
+        setTelegramError('Not running in Telegram app. Please open via @Buycex_presale_bot');
         setIsLoading(false);
         return;
       }
@@ -39,65 +52,88 @@ const PresaleEntry: React.FC = () => {
       console.log('✅ Telegram SDK found');
       console.log('Platform:', tg.platform);
       console.log('Version:', tg.version);
-      console.log('InitData:', tg.initData?.substring(0, 50) + '...');
+      console.log('InitData length:', tg.initData?.length || 0);
+      console.log('InitDataUnsafe:', tg.initDataUnsafe);
       
-      // Get user from initDataUnsafe
       const user = tg.initDataUnsafe?.user;
-      console.log('User data:', user);
 
-      if (user?.id) {
-        console.log('✅ User found:', user.first_name);
-        setTelegramUser(user);
-        
-        // ✅ NEW: Send raw initData for validation
-        const initDataRaw = tg.initData;
-        if (initDataRaw && initDataRaw.length > 0) {
-          console.log('📤 Sending initDataRaw for validation...');
-          saveTelegramUserValidated(initDataRaw, user);
-        } else {
-          console.warn('⚠️ No initData available, using fallback');
-          saveTelegramUserMobile(user);
-        }
-        
-        setTelegramError(null);
+      if (!user?.id) {
+        console.error('❌ No user data in initDataUnsafe');
+        setTelegramError('User data not available. Please restart the bot.');
+        setIsLoading(false);
+        return;
+      }
+
+      console.log('✅ User found:', {
+        id: user.id,
+        first_name: user.first_name,
+        username: user.username,
+        is_premium: user.is_premium,
+        language_code: user.language_code
+      });
+
+      setTelegramUser(user);
+      setTelegramError(null);
+
+      const initDataRaw = tg.initData;
+      
+      if (initDataRaw && initDataRaw.length > 0) {
+        console.log('📤 Sending initData for validation...');
+        console.log('InitData preview:', initDataRaw.substring(0, 100) + '...');
+        saveTelegramUserValidated(initDataRaw, user);
       } else {
-        console.warn('⚠️ No user data');
-        setTelegramError('User data not available');
+        console.warn('⚠️ No initData available, using fallback');
+        setValidationStatus('fallback');
+        saveTelegramUserMobile(user);
       }
       
       setIsLoading(false);
     };
 
-    // Wait a bit for SDK to be ready
-    setTimeout(initTelegram, 500);
+    const checkSDK = () => {
+      if (window.__TELEGRAM_SDK_READY__ === true) {
+        console.log('✅ SDK is ready, initializing...');
+        initTelegram();
+      } else if (window.__TELEGRAM_SDK_READY__ === false) {
+        console.error('❌ SDK failed to load');
+        setTelegramError('Telegram SDK failed to load');
+        setIsLoading(false);
+      } else {
+        console.log('⏳ Waiting for SDK...');
+        setTimeout(checkSDK, 200);
+      }
+    };
+
+    setTimeout(checkSDK, 100);
   }, []);
 
-  // ✅ NEW: Send initDataRaw for server-side validation
   const saveTelegramUserValidated = async (initDataRaw: string, user: TelegramUser) => {
     try {
-      console.log('🔐 Sending validated init data...');
-      console.log('InitDataRaw length:', initDataRaw.length);
+      console.log('🔐 Validating init data...');
+      console.log('Sending to:', `${BACKEND_URL}/api/telegram-login`);
       
       const response = await axios.post(
         `${BACKEND_URL}/api/telegram-login`,
-        { initDataRaw }, // ✅ Send as initDataRaw (not initData)
+        { initDataRaw },
         {
           headers: {
             'Content-Type': 'application/json',
             'ngrok-skip-browser-warning': '69420'
-          }
+          },
+          timeout: 10000
         }
       );
       
       console.log('✅ User validated and saved:', response.data);
+      setValidationStatus('validated');
     } catch (error: any) {
       console.error('❌ Validation failed:', error.response?.data || error.message);
       console.warn('⚠️ Falling back to mobile method');
+      setValidationStatus('fallback');
       saveTelegramUserMobile(user);
     }
   };
 
-  // ✅ Fallback for testing/dev (no validation)
   const saveTelegramUserMobile = async (user: TelegramUser) => {
     try {
       console.log('📱 Saving user (mobile fallback)...');
@@ -108,7 +144,8 @@ const PresaleEntry: React.FC = () => {
           headers: {
             'Content-Type': 'application/json',
             'ngrok-skip-browser-warning': '69420'
-          }
+          },
+          timeout: 10000
         }
       );
       console.log('✅ User saved (mobile):', response.data);
@@ -154,7 +191,10 @@ const PresaleEntry: React.FC = () => {
       <div className="flex h-screen items-center justify-center bg-black text-white">
         <div className="text-center">
           <div className="mb-4 text-4xl">⏳</div>
-          <p className="text-xl">Loading...</p>
+          <p className="text-xl">Loading Telegram...</p>
+          <p className="text-sm text-gray-400 mt-2">
+            {window.__TELEGRAM_SDK_READY__ === undefined ? 'Initializing SDK...' : 'Processing...'}
+          </p>
         </div>
       </div>
     );
@@ -166,7 +206,6 @@ const PresaleEntry: React.FC = () => {
         <img src={buycexlogo} alt="Buycex Logo" className="mx-auto mb-6 h-14 w-auto" />
         <h1 className="mb-2 text-4xl font-bold text-yellow-400">Enter The Buycex Presale</h1>
 
-        {/* Telegram Status */}
         {telegramUser ? (
           <div className="mb-4 p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
             <div className="flex items-center justify-center gap-3">
@@ -188,9 +227,20 @@ const PresaleEntry: React.FC = () => {
                 {telegramUser.username && (
                   <p className="text-green-400 text-sm">@{telegramUser.username}</p>
                 )}
+                {telegramUser.is_premium && (
+                  <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">⭐ Premium</span>
+                )}
               </div>
             </div>
-            <p className="text-green-400 text-xs mt-2">✅ Telegram connected</p>
+            <div className="flex items-center justify-center gap-2 mt-2">
+              <p className="text-green-400 text-xs">✅ Telegram connected</p>
+              {validationStatus === 'validated' && (
+                <span className="text-xs bg-green-500/20 text-green-300 px-2 py-0.5 rounded">🔐 Verified</span>
+              )}
+              {validationStatus === 'fallback' && (
+                <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded">⚠️ Dev mode</span>
+              )}
+            </div>
           </div>
         ) : (
           <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
@@ -201,12 +251,11 @@ const PresaleEntry: React.FC = () => {
           </div>
         )}
 
-        {/* Wallet Status */}
         <div className="mb-6">
           {isConnected && address ? (
             <div className="p-3 bg-green-500/10 border border-green-500/30 rounded">
               <p className="text-green-400 font-semibold">✅ Wallet Connected</p>
-              <p className="text-green-300 text-sm">
+              <p className="text-green-300 text-sm font-mono">
                 {address.slice(0, 6)}...{address.slice(-4)}
               </p>
             </div>
@@ -217,7 +266,6 @@ const PresaleEntry: React.FC = () => {
           )}
         </div>
 
-        {/* Action */}
         {isConnected && telegramUser ? (
           <NavLink 
             to="/home" 
@@ -245,6 +293,22 @@ const PresaleEntry: React.FC = () => {
               <li>Wait for confirmation</li>
             </ol>
           </div>
+        )}
+
+        {import.meta.env.DEV && telegramUser && (
+          <details className="mt-4 text-left">
+            <summary className="text-xs text-gray-500 cursor-pointer">Debug Info</summary>
+            <pre className="text-xs text-gray-400 mt-2 p-2 bg-gray-900 rounded overflow-auto">
+              {JSON.stringify({
+                id: telegramUser.id,
+                username: telegramUser.username,
+                platform: window.Telegram?.WebApp.platform,
+                version: window.Telegram?.WebApp.version,
+                hasInitData: !!window.Telegram?.WebApp.initData,
+                validationStatus
+              }, null, 2)}
+            </pre>
+          </details>
         )}
       </div>
     </div>
