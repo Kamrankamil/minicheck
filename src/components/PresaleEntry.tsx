@@ -4,7 +4,8 @@ import React, { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { useAccount } from 'wagmi'
 import axios from 'axios'
-import WebApp from '@twa-dev/sdk'
+// ✅ Fix: Import as namespace instead of default
+import * as WebApp from '@twa-dev/sdk'
 import buycexlogo from '../assets/img/BUYCEX-INFINITY.png'
 
 const BACKEND_URL =
@@ -31,7 +32,7 @@ const PresaleEntry: React.FC = () => {
     useState<'pending' | 'validated' | 'fallback'>('pending')
 
   useEffect(() => {
-    // ✅ Read immediately on mount (like the working repo)
+    // ✅ Read immediately on mount
     if (WebApp.initDataUnsafe?.user) {
       const user = WebApp.initDataUnsafe.user as TelegramUser
       setTelegramUser(user)
