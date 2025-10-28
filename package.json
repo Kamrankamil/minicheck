@@ -19,6 +19,7 @@
     "@telegram-apps/telegram-ui": "^2.1.13",
     "@tonconnect/sdk": "^3.3.1",
     "@tonconnect/ui-react": "^2.3.1",
+    "@twa-dev/sdk": "^8.0.2",
     "@wagmi/connectors": "^6.1.0",
     "@wagmi/core": "^2.22.1",
     "@web3modal/wagmi": "^5.1.11",

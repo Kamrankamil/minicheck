@@ -2,75 +2,14 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#000000" />
     <title>Buycex Presale</title>
-    
-    <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
-      
-      html, body {
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
-        position: fixed;
-      }
-      
-      #root {
-        width: 100%;
-        height: 100%;
-        overflow: auto;
-      }
-    </style>
+    <!-- Optional: keep SDK for desktop/browser debugging; mobile works without it -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
     <div id="root"></div>
-    
-    <!-- ✅ Load Telegram SDK AFTER body -->
-    <script src="https://telegram.org/js/telegram-web-app.js"></script>
-    
-    <script>
-      console.log('🔧 Starting SDK check...');
-      console.log('User Agent:', navigator.userAgent);
-      
-      // ✅ Wait for everything to load
-      window.addEventListener('load', function() {
-        console.log('📄 Page fully loaded');
-        
-        let attempts = 0;
-        
-        function checkSDK() {
-          attempts++;
-          console.log('Check', attempts, '- Telegram exists:', !!window.Telegram);
-          
-          if (window.Telegram && window.Telegram.WebApp) {
-            console.log('✅ SDK FOUND!');
-            console.log('Platform:', window.Telegram.WebApp.platform);
-            console.log('Version:', window.Telegram.WebApp.version);
-            
-            window.Telegram.WebApp.ready();
-            window.Telegram.WebApp.expand();
-            
-            window.__TELEGRAM_SDK_READY__ = true;
-            console.log('✅ Initialization complete');
-          } else if (attempts < 50) {
-            setTimeout(checkSDK, 200);
-          } else {
-            console.error('❌ SDK timeout after', attempts, 'attempts');
-            window.__TELEGRAM_SDK_READY__ = false;
-            window.__TELEGRAM_SDK_ERROR__ = 'Timeout';
-          }
-        }
-        
-        setTimeout(checkSDK, 100);
-      });
-    </script>
-    
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

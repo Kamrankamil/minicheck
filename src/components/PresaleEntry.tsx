@@ -9,7 +9,7 @@ const BACKEND_URL =
   import.meta.env.VITE_BACKEND_URL ||
   'https://isochronous-packable-sherly.ngrok-free.dev';
 
-interface TelegramUser {
+type TelegramUser = {
   id: number;
   first_name: string;
   last_name?: string;
@@ -18,7 +18,7 @@ interface TelegramUser {
   language_code?: string;
   is_premium?: boolean;
   allows_write_to_pm?: boolean;
-}
+};
 
 const PresaleEntry: React.FC = () => {
   const { isConnected, address, isConnecting } = useAccount();
@@ -31,20 +31,18 @@ const PresaleEntry: React.FC = () => {
     useState<'pending' | 'validated' | 'fallback'>('pending');
 
   useEffect(() => {
-    // Initialize Telegram WebApp via official SDK wrapper
+    // Minimal, repo-like init (works on mobile)
     try {
       WebApp.ready();
       WebApp.expand?.();
       WebApp.disableVerticalSwipes?.();
-    } catch {
-      // ignore
-    }
+      WebApp.setBackgroundColor?.('#000000');
+    } catch {/* noop */}
 
-    // Read user from Telegram initData
     const user = WebApp.initDataUnsafe?.user as TelegramUser | undefined;
 
     if (!user?.id) {
-      setTelegramError('Open this app from @Buycex_presale_bot in Telegram.');
+      setTelegramError('Open this app via the bot button (@Buycex_presale_bot).');
       setIsLoading(false);
       return;
     }
@@ -55,10 +53,8 @@ const PresaleEntry: React.FC = () => {
     const initDataRaw = WebApp.initData;
 
     if (initDataRaw && initDataRaw.length > 0) {
-      // Validate with backend (recommended)
       saveTelegramUserValidated(initDataRaw, user);
     } else {
-      // Fallback for dev or missing init data
       setValidationStatus('fallback');
       saveTelegramUserMobile(user);
     }
@@ -82,11 +78,9 @@ const PresaleEntry: React.FC = () => {
           timeout: 10000,
         }
       );
-      // eslint-disable-next-line no-console
       console.log('Validated:', res.data);
       setValidationStatus('validated');
     } catch (err: any) {
-      // eslint-disable-next-line no-console
       console.warn('Validation failed, using fallback', err?.response?.data || err?.message);
       setValidationStatus('fallback');
       saveTelegramUserMobile(user);
@@ -106,10 +100,8 @@ const PresaleEntry: React.FC = () => {
           timeout: 10000,
         }
       );
-      // eslint-disable-next-line no-console
       console.log('Saved (mobile):', res.data);
     } catch (err: any) {
-      // eslint-disable-next-line no-console
       console.error('Save (mobile) failed:', err?.response?.data || err?.message);
     }
   };
@@ -136,10 +128,8 @@ const PresaleEntry: React.FC = () => {
           },
         }
       );
-      // eslint-disable-next-line no-console
       console.log('Wallet linked:', res.data);
     } catch (err: any) {
-      // eslint-disable-next-line no-console
       console.error('Link wallet failed:', err?.response?.data || err?.message);
     }
   };
@@ -220,7 +210,7 @@ const PresaleEntry: React.FC = () => {
               🔴 {telegramError || 'Telegram not available'}
             </p>
             <p className="text-red-400 text-xs mt-2">
-              Please open via: @Buycex_presale_bot
+              Open via: @Buycex_presale_bot (button in message)
             </p>
           </div>
         )}
