@@ -17,7 +17,6 @@ interface TelegramUser {
   allows_write_to_pm?: boolean;
 }
 
-// ✅ Type declarations for window properties
 declare global {
   interface Window {
     __TELEGRAM_SDK_READY__?: boolean;
@@ -32,63 +31,32 @@ const PresaleEntry: React.FC = () => {
   const [telegramError, setTelegramError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [validationStatus, setValidationStatus] = useState<'pending' | 'validated' | 'fallback'>('pending');
-useEffect(() => {
-  const initTelegram = () => {
-    console.log('🚀 Initializing Telegram WebApp...');
-    console.log('SDK Ready:', window.__TELEGRAM_SDK_READY__);
-    console.log('window.Telegram:', window.Telegram);
-    
-    // ✅ Check if we're actually in Telegram
-    const urlParams = new URLSearchParams(window.location.search);
-    const tgWebAppData = urlParams.get('tgWebAppData');
-    
-    if (!tgWebAppData && !window.Telegram) {
-      console.error('❌ Not running in Telegram environment');
-      setTelegramError('Please open this app from Telegram bot');
-      setIsLoading(false);
-      return;
-    }
-    
-    const tg = window.Telegram?.WebApp;
-    
-    if (!tg) {
-      console.error('❌ Telegram SDK not available');
-      setTelegramError('Telegram SDK failed to load. Please restart the bot.');
-      setIsLoading(false);
-      return;
-    }
 
-    // ...rest of your code...
-  };
-
-  const checkSDK = () => {
-    if (window.__TELEGRAM_SDK_READY__ === true) {
-      console.log('✅ SDK is ready, initializing...');
-      initTelegram();
-    } else if (window.__TELEGRAM_SDK_READY__ === false) {
-      console.error('❌ SDK failed to load');
-      setTelegramError('Telegram SDK failed to load');
-      setIsLoading(false);
-    } else {
-      console.log('⏳ Waiting for SDK... attempt');
-      setTimeout(checkSDK, 300); // ✅ Increased timeout
-    }
-  };
-
-  setTimeout(checkSDK, 500); // ✅ Wait longer before first check
-}, []);
   useEffect(() => {
     const initTelegram = () => {
       console.log('🚀 Initializing Telegram WebApp...');
       console.log('SDK Ready:', window.__TELEGRAM_SDK_READY__);
+      console.log('SDK Error:', window.__TELEGRAM_SDK_ERROR__);
+      console.log('window.Telegram exists:', !!window.Telegram);
       
       const tg = window.Telegram?.WebApp;
       
       if (!tg) {
         console.error('❌ Telegram SDK not available');
-        console.log('window.Telegram:', window.Telegram);
-        console.log('SDK Error:', window.__TELEGRAM_SDK_ERROR__);
-        setTelegramError('Not running in Telegram app. Please open via @Buycex_presale_bot');
+        console.log('Current URL:', window.location.href);
+        console.log('User Agent:', navigator.userAgent);
+        
+        // Check if we're in Telegram context
+        const isTelegramContext = navigator.userAgent.includes('Telegram') || 
+                                  window.location.search.includes('tgWebAppData') ||
+                                  window.location.hash.includes('tgWebAppData');
+        
+        if (!isTelegramContext) {
+          setTelegramError('⚠️ Please open this app from @Buycex_presale_bot in Telegram');
+        } else {
+          setTelegramError('❌ Telegram SDK failed to load.\n\nPlease try:\n1. Close and reopen the bot\n2. Restart Telegram app\n3. Update Telegram to latest version');
+        }
+        
         setIsLoading(false);
         return;
       }
@@ -96,14 +64,17 @@ useEffect(() => {
       console.log('✅ Telegram SDK found');
       console.log('Platform:', tg.platform);
       console.log('Version:', tg.version);
+      console.log('InitData available:', !!tg.initData);
       console.log('InitData length:', tg.initData?.length || 0);
-      console.log('InitDataUnsafe:', tg.initDataUnsafe);
+      console.log('InitDataUnsafe:', JSON.stringify(tg.initDataUnsafe, null, 2));
       
       const user = tg.initDataUnsafe?.user;
 
       if (!user?.id) {
         console.error('❌ No user data in initDataUnsafe');
-        setTelegramError('User data not available. Please restart the bot.');
+        console.log('Full initDataUnsafe:', tg.initDataUnsafe);
+        console.log('Full initData:', tg.initData);
+        setTelegramError('No user data available.\n\nPlease close and reopen the bot.');
         setIsLoading(false);
         return;
       }
@@ -112,8 +83,7 @@ useEffect(() => {
         id: user.id,
         first_name: user.first_name,
         username: user.username,
-        is_premium: user.is_premium,
-        language_code: user.language_code
+        is_premium: user.is_premium
       });
 
       setTelegramUser(user);
@@ -134,27 +104,37 @@ useEffect(() => {
       setIsLoading(false);
     };
 
+    let checkAttempts = 0;
+    const maxCheckAttempts = 30; // 30 attempts = 9 seconds
+
     const checkSDK = () => {
+      checkAttempts++;
+      console.log(`🔍 Check ${checkAttempts}/${maxCheckAttempts} - SDK Ready:`, window.__TELEGRAM_SDK_READY__);
+      
       if (window.__TELEGRAM_SDK_READY__ === true) {
         console.log('✅ SDK is ready, initializing...');
         initTelegram();
       } else if (window.__TELEGRAM_SDK_READY__ === false) {
-        console.error('❌ SDK failed to load');
-        setTelegramError('Telegram SDK failed to load');
+        console.error('❌ SDK failed to load:', window.__TELEGRAM_SDK_ERROR__);
+        setTelegramError(`Telegram SDK failed to load.\n\nError: ${window.__TELEGRAM_SDK_ERROR__ || 'Unknown'}`);
+        setIsLoading(false);
+      } else if (checkAttempts >= maxCheckAttempts) {
+        console.error('❌ SDK check timeout');
+        setTelegramError('Loading timeout.\n\nPlease restart the bot.');
         setIsLoading(false);
       } else {
         console.log('⏳ Waiting for SDK...');
-        setTimeout(checkSDK, 200);
+        setTimeout(checkSDK, 300);
       }
     };
 
-    setTimeout(checkSDK, 100);
+    // ✅ Start checking after 1 second (give mobile more time)
+    setTimeout(checkSDK, 1000);
   }, []);
 
   const saveTelegramUserValidated = async (initDataRaw: string, user: TelegramUser) => {
     try {
       console.log('🔐 Validating init data...');
-      console.log('Sending to:', `${BACKEND_URL}/api/telegram-login`);
       
       const response = await axios.post(
         `${BACKEND_URL}/api/telegram-login`,
@@ -233,22 +213,27 @@ useEffect(() => {
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center bg-black text-white">
-        <div className="text-center">
+        <div className="text-center px-4">
           <div className="mb-4 text-4xl">⏳</div>
           <p className="text-xl">Loading Telegram...</p>
           <p className="text-sm text-gray-400 mt-2">
             {window.__TELEGRAM_SDK_READY__ === undefined ? 'Initializing SDK...' : 'Processing...'}
           </p>
+          <div className="mt-4 text-xs text-gray-500">
+            <p>If stuck, try:</p>
+            <p>• Close and reopen bot</p>
+            <p>• Restart Telegram app</p>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen items-center justify-center bg-black text-white">
-      <div className="w-[90%] max-w-md rounded-lg border border-white/10 bg-black/40 p-8 text-center backdrop-blur-lg shadow-lg">
+    <div className="flex min-h-screen items-center justify-center bg-black text-white p-4">
+      <div className="w-full max-w-md rounded-lg border border-white/10 bg-black/40 p-6 text-center backdrop-blur-lg shadow-lg">
         <img src={buycexlogo} alt="Buycex Logo" className="mx-auto mb-6 h-14 w-auto" />
-        <h1 className="mb-2 text-4xl font-bold text-yellow-400">Enter The Buycex Presale</h1>
+        <h1 className="mb-4 text-3xl font-bold text-yellow-400">Enter The Buycex Presale</h1>
 
         {telegramUser ? (
           <div className="mb-4 p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
@@ -288,10 +273,13 @@ useEffect(() => {
           </div>
         ) : (
           <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-            <p className="text-red-300 text-sm">🔴 {telegramError}</p>
-            <p className="text-red-400 text-xs mt-2">
-              Please open via: @Buycex_presale_bot
-            </p>
+            <p className="text-red-300 text-sm whitespace-pre-line">{telegramError}</p>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="mt-3 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 rounded text-red-300 text-sm active:bg-red-500/40"
+            >
+              🔄 Retry
+            </button>
           </div>
         )}
 
@@ -299,7 +287,7 @@ useEffect(() => {
           {isConnected && address ? (
             <div className="p-3 bg-green-500/10 border border-green-500/30 rounded">
               <p className="text-green-400 font-semibold">✅ Wallet Connected</p>
-              <p className="text-green-300 text-sm font-mono">
+              <p className="text-green-300 text-sm font-mono break-all">
                 {address.slice(0, 6)}...{address.slice(-4)}
               </p>
             </div>
@@ -313,7 +301,7 @@ useEffect(() => {
         {isConnected && telegramUser ? (
           <NavLink 
             to="/home" 
-            className="w-full inline-block px-6 py-3 rounded-lg text-lg font-bold text-black bg-yellow-400 hover:bg-yellow-500 transition-colors"
+            className="w-full inline-block px-6 py-3 rounded-lg text-lg font-bold text-black bg-yellow-400 hover:bg-yellow-500 active:bg-yellow-600 transition-colors"
           >
             Enter Presale
           </NavLink>
@@ -331,28 +319,12 @@ useEffect(() => {
         {showInstructions && (
           <div className="mt-4 p-4 border border-yellow-500/30 bg-yellow-500/10 rounded-lg text-sm">
             <p className="text-yellow-300 font-bold mb-2">📱 Steps:</p>
-            <ol className="list-decimal list-inside text-yellow-200 text-left">
+            <ol className="list-decimal list-inside text-yellow-200 text-left space-y-1">
               <li>Approve in MetaMask</li>
               <li>Return to Telegram</li>
               <li>Wait for confirmation</li>
             </ol>
           </div>
-        )}
-
-        {import.meta.env.DEV && telegramUser && (
-          <details className="mt-4 text-left">
-            <summary className="text-xs text-gray-500 cursor-pointer">Debug Info</summary>
-            <pre className="text-xs text-gray-400 mt-2 p-2 bg-gray-900 rounded overflow-auto">
-              {JSON.stringify({
-                id: telegramUser.id,
-                username: telegramUser.username,
-                platform: window.Telegram?.WebApp.platform,
-                version: window.Telegram?.WebApp.version,
-                hasInitData: !!window.Telegram?.WebApp.initData,
-                validationStatus
-              }, null, 2)}
-            </pre>
-          </details>
         )}
       </div>
     </div>

@@ -7,73 +7,112 @@
     <meta name="theme-color" content="#000000" />
     <title>Buycex Presale</title>
     
+    <!-- ✅ Mobile-friendly styles -->
     <style>
       * {
         -webkit-touch-callout: none;
         -webkit-user-select: none;
         -webkit-tap-highlight-color: transparent;
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
       }
       
       html, body {
-        margin: 0;
-        padding: 0;
         width: 100%;
         height: 100%;
         overflow: hidden;
         overscroll-behavior: none;
+        position: fixed;
       }
       
       #root {
         width: 100%;
         height: 100%;
         overflow: auto;
+        -webkit-overflow-scrolling: touch;
       }
     </style>
 
-    <!-- ✅ Load Telegram Web App SDK FIRST -->
+    <!-- ✅ Load SDK for MOBILE -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
     <script>
-      console.log('🔧 Starting Telegram SDK initialization...');
+      console.log('📱 Mobile Telegram SDK Initialization');
+      console.log('User Agent:', navigator.userAgent);
       
-      // ✅ Create script element
-      const script = document.createElement('script');
-      script.src = 'https://telegram.org/js/telegram-web-app.js';
-      script.async = false; // Load synchronously
+      // ✅ Detect if we're on mobile
+      const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      console.log('Is Mobile:', isMobile);
       
-      script.onload = function() {
-        console.log('✅ Telegram SDK script loaded');
+      (function() {
+        let attempts = 0;
+        const maxAttempts = 30; // More attempts for mobile
         
-        // Wait a bit for SDK to initialize
-        setTimeout(() => {
-          if (window.Telegram && window.Telegram.WebApp) {
-            console.log('✅ Telegram WebApp available');
-            console.log('Platform:', window.Telegram.WebApp.platform);
-            console.log('Version:', window.Telegram.WebApp.version);
-            window.__TELEGRAM_SDK_READY__ = true;
+        function checkTelegram() {
+          attempts++;
+          console.log(`🔍 Attempt ${attempts}/${maxAttempts} - Checking Telegram...`);
+          
+          if (typeof window.Telegram !== 'undefined' && window.Telegram.WebApp) {
+            console.log('✅ Telegram WebApp found!');
             
-            // Initialize WebApp
-            window.Telegram.WebApp.ready();
-            window.Telegram.WebApp.expand();
+            const tg = window.Telegram.WebApp;
+            console.log('📊 Platform:', tg.platform);
+            console.log('📊 Version:', tg.version);
+            console.log('📊 InitData exists:', !!tg.initData);
+            console.log('📊 InitDataUnsafe:', tg.initDataUnsafe);
             
-            // Disable vertical swipes if available
-            if (window.Telegram.WebApp.disableVerticalSwipes) {
-              window.Telegram.WebApp.disableVerticalSwipes();
+            // ✅ Initialize WebApp
+            try {
+              tg.ready();
+              console.log('✅ ready() called');
+              
+              tg.expand();
+              console.log('✅ expand() called');
+              
+              // ✅ Disable vertical swipes on mobile
+              if (isMobile && typeof tg.disableVerticalSwipes === 'function') {
+                tg.disableVerticalSwipes();
+                console.log('✅ Vertical swipes disabled');
+              }
+              
+              // ✅ Set background color
+              if (tg.setBackgroundColor) {
+                tg.setBackgroundColor('#000000');
+              }
+              
+              window.__TELEGRAM_SDK_READY__ = true;
+              console.log('✅ SDK fully initialized');
+              
+            } catch (error) {
+              console.error('❌ Error during initialization:', error);
+              window.__TELEGRAM_SDK_READY__ = false;
+              window.__TELEGRAM_SDK_ERROR__ = error.message;
             }
+            
+          } else if (attempts < maxAttempts) {
+            console.log('⏳ SDK not ready, waiting...');
+            setTimeout(checkTelegram, 300); // Check every 300ms
           } else {
-            console.error('❌ Telegram WebApp object not found after script load');
+            console.error('❌ Telegram SDK failed to load after', maxAttempts, 'attempts');
+            console.log('window.Telegram:', window.Telegram);
+            console.log('typeof Telegram:', typeof window.Telegram);
             window.__TELEGRAM_SDK_READY__ = false;
-            window.__TELEGRAM_SDK_ERROR__ = 'WebApp object not available';
+            window.__TELEGRAM_SDK_ERROR__ = 'Timeout - SDK not loaded';
           }
-        }, 100);
-      };
-      
-      script.onerror = function() {
-        console.error('❌ Failed to load Telegram SDK script');
-        window.__TELEGRAM_SDK_READY__ = false;
-        window.__TELEGRAM_SDK_ERROR__ = 'Script failed to load';
-      };
-      
-      // Add script to head
-      document.head.appendChild(script);
+        }
+        
+        // ✅ Start checking immediately
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', function() {
+            console.log('📄 DOM loaded, starting checks in 500ms');
+            setTimeout(checkTelegram, 500);
+          });
+        } else {
+          console.log('📄 DOM already loaded, starting checks in 500ms');
+          setTimeout(checkTelegram, 500);
+        }
+      })();
     </script>
   </head>
   <body>
