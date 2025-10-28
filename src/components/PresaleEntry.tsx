@@ -32,7 +32,51 @@ const PresaleEntry: React.FC = () => {
   const [telegramError, setTelegramError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [validationStatus, setValidationStatus] = useState<'pending' | 'validated' | 'fallback'>('pending');
+useEffect(() => {
+  const initTelegram = () => {
+    console.log('🚀 Initializing Telegram WebApp...');
+    console.log('SDK Ready:', window.__TELEGRAM_SDK_READY__);
+    console.log('window.Telegram:', window.Telegram);
+    
+    // ✅ Check if we're actually in Telegram
+    const urlParams = new URLSearchParams(window.location.search);
+    const tgWebAppData = urlParams.get('tgWebAppData');
+    
+    if (!tgWebAppData && !window.Telegram) {
+      console.error('❌ Not running in Telegram environment');
+      setTelegramError('Please open this app from Telegram bot');
+      setIsLoading(false);
+      return;
+    }
+    
+    const tg = window.Telegram?.WebApp;
+    
+    if (!tg) {
+      console.error('❌ Telegram SDK not available');
+      setTelegramError('Telegram SDK failed to load. Please restart the bot.');
+      setIsLoading(false);
+      return;
+    }
 
+    // ...rest of your code...
+  };
+
+  const checkSDK = () => {
+    if (window.__TELEGRAM_SDK_READY__ === true) {
+      console.log('✅ SDK is ready, initializing...');
+      initTelegram();
+    } else if (window.__TELEGRAM_SDK_READY__ === false) {
+      console.error('❌ SDK failed to load');
+      setTelegramError('Telegram SDK failed to load');
+      setIsLoading(false);
+    } else {
+      console.log('⏳ Waiting for SDK... attempt');
+      setTimeout(checkSDK, 300); // ✅ Increased timeout
+    }
+  };
+
+  setTimeout(checkSDK, 500); // ✅ Wait longer before first check
+}, []);
   useEffect(() => {
     const initTelegram = () => {
       console.log('🚀 Initializing Telegram WebApp...');

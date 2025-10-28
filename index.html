@@ -1,83 +1,11 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" href="/favicon.ico" />
-    
-    <!-- ✅ Prevent caching on mobile -->
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
-    
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <meta name="format-detection" content="telephone=no" />
-    <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    
-    <title>BCX Token Presale - Early Access</title>
-
-    <meta content="Buycex" property="og:title" />
-    <meta content="https://global.buycex.com/Upload/coin/677da3cd24a43.png" property="og:image" />
-    <meta property="og:type" content="website" />
-    <meta content="summary_large_image" name="twitter:card" />
-
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;600;700;800&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
-    
-    <!-- ✅ Force reload Telegram SDK with timestamp -->
-    <script src="https://telegram.org/js/telegram-web-app.js?v=7.0"></script>
-    
-    <!-- ✅ Initialize immediately with better mobile support -->
-    <script>
-      (function() {
-        console.log('🔍 [Mobile] Checking Telegram SDK...');
-        console.log('User Agent:', navigator.userAgent);
-        
-        let attempts = 0;
-        const maxAttempts = 20;
-        
-        function initTelegram() {
-          const tg = window.Telegram?.WebApp;
-          
-          if (tg) {
-            console.log('✅ [Mobile] Telegram SDK loaded!');
-            console.log('Platform:', tg.platform);
-            console.log('Version:', tg.version);
-            console.log('User:', tg.initDataUnsafe?.user);
-            
-            tg.ready();
-            tg.expand();
-            tg.disableVerticalSwipes?.();
-            
-            // Set theme
-            document.body.style.backgroundColor = tg.themeParams.bg_color || '#000000';
-            
-            window.__TELEGRAM_SDK_READY__ = true;
-            return;
-          }
-          
-          attempts++;
-          console.log(`⏳ [Mobile] Attempt ${attempts}/${maxAttempts}...`);
-          
-          if (attempts < maxAttempts) {
-            setTimeout(initTelegram, 200);
-          } else {
-            console.error('❌ [Mobile] Telegram SDK not loaded');
-            window.__TELEGRAM_SDK_READY__ = false;
-            window.__TELEGRAM_SDK_ERROR__ = 'SDK not loaded after ' + maxAttempts + ' attempts';
-          }
-        }
-        
-        // Start checking
-        if (document.readyState === 'loading') {
-          document.addEventListener('DOMContentLoaded', () => setTimeout(initTelegram, 100));
-        } else {
-          setTimeout(initTelegram, 100);
-        }
-      })();
-    </script>
+    <meta name="theme-color" content="#000000" />
+    <title>Buycex Presale</title>
     
     <style>
       * {
@@ -93,17 +21,60 @@
         height: 100%;
         overflow: hidden;
         overscroll-behavior: none;
-        position: fixed;
-        background-color: #000000;
       }
       
       #root {
         width: 100%;
         height: 100%;
         overflow: auto;
-        -webkit-overflow-scrolling: touch;
       }
     </style>
+
+    <!-- ✅ Load Telegram Web App SDK FIRST -->
+    <script>
+      console.log('🔧 Starting Telegram SDK initialization...');
+      
+      // ✅ Create script element
+      const script = document.createElement('script');
+      script.src = 'https://telegram.org/js/telegram-web-app.js';
+      script.async = false; // Load synchronously
+      
+      script.onload = function() {
+        console.log('✅ Telegram SDK script loaded');
+        
+        // Wait a bit for SDK to initialize
+        setTimeout(() => {
+          if (window.Telegram && window.Telegram.WebApp) {
+            console.log('✅ Telegram WebApp available');
+            console.log('Platform:', window.Telegram.WebApp.platform);
+            console.log('Version:', window.Telegram.WebApp.version);
+            window.__TELEGRAM_SDK_READY__ = true;
+            
+            // Initialize WebApp
+            window.Telegram.WebApp.ready();
+            window.Telegram.WebApp.expand();
+            
+            // Disable vertical swipes if available
+            if (window.Telegram.WebApp.disableVerticalSwipes) {
+              window.Telegram.WebApp.disableVerticalSwipes();
+            }
+          } else {
+            console.error('❌ Telegram WebApp object not found after script load');
+            window.__TELEGRAM_SDK_READY__ = false;
+            window.__TELEGRAM_SDK_ERROR__ = 'WebApp object not available';
+          }
+        }, 100);
+      };
+      
+      script.onerror = function() {
+        console.error('❌ Failed to load Telegram SDK script');
+        window.__TELEGRAM_SDK_READY__ = false;
+        window.__TELEGRAM_SDK_ERROR__ = 'Script failed to load';
+      };
+      
+      // Add script to head
+      document.head.appendChild(script);
+    </script>
   </head>
   <body>
     <div id="root"></div>
