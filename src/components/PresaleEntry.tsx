@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
-import WebApp from '@twa-dev/sdk'
 
 // Define the interface for Telegram user data
 interface TelegramUser {
@@ -15,15 +14,33 @@ interface TelegramUser {
 
 const PresaleEntry: React.FC = () => {
   const [user, setUser] = useState<TelegramUser | null>(null)
+  const [msg, setMsg] = useState('Loading...')
 
   useEffect(() => {
-    // Initialize Telegram WebApp and get user data
-    if (WebApp.initDataUnsafe?.user) {
-      setUser(WebApp.initDataUnsafe.user as TelegramUser)
+    const WebApp = window?.Telegram?.WebApp
+    console.log('[TWA] WebApp:', WebApp)
+
+    if (!WebApp) {
+      setMsg('Telegram SDK not available. Open from your Telegram bot WebApp button.')
+      return
     }
 
-    // Expand to full screen (optional)
-    WebApp.expand()
+    try {
+      WebApp.ready?.()
+      WebApp.expand?.()
+      WebApp.setHeaderColor?.('#000000')
+      WebApp.setBackgroundColor?.('#000000')
+    } catch (e) {
+      console.warn('WebApp init error', e)
+    }
+
+    const u = WebApp.initDataUnsafe?.user as TelegramUser | undefined
+    if (u) {
+      setUser(u)
+      setMsg('')
+    } else {
+      setMsg('No user data. Open via the Telegram bot WebApp button, not a direct link.')
+    }
   }, [])
 
   return (
@@ -43,7 +60,7 @@ const PresaleEntry: React.FC = () => {
           </ul>
         </div>
       ) : (
-        <div className="text-gray-400 text-lg">Loading user data...</div>
+        <div className="text-gray-400 text-lg">{msg}</div>
       )}
     </div>
   )
