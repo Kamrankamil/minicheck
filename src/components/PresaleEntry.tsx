@@ -1,50 +1,259 @@
 'use client'
 
 import React, { useEffect, useState } from 'react'
+import { NavLink } from 'react-router-dom'
+import { useAccount } from 'wagmi'
+import axios from 'axios'
 import WebApp from '@twa-dev/sdk'
+import buycexlogo from '../assets/img/BUYCEX-INFINITY.png'
 
-// Define the interface for Telegram user data
+const BACKEND_URL =
+  import.meta.env.VITE_BACKEND_URL ||
+  'https://isochronous-packable-sherly.ngrok-free.dev'
+
 interface TelegramUser {
   id: number
   first_name: string
   last_name?: string
   username?: string
-  language_code: string
+  photo_url?: string
+  language_code?: string
   is_premium?: boolean
+  allows_write_to_pm?: boolean
 }
 
 const PresaleEntry: React.FC = () => {
-  const [user, setUser] = useState<TelegramUser | null>(null)
+  const { isConnected, address, isConnecting } = useAccount()
+
+  const [showInstructions, setShowInstructions] = useState(false)
+  const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null)
+  const [telegramError, setTelegramError] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [validationStatus, setValidationStatus] =
+    useState<'pending' | 'validated' | 'fallback'>('pending')
 
   useEffect(() => {
-    // Initialize Telegram WebApp and get user data
-    if (WebApp.initDataUnsafe?.user) {
-      setUser(WebApp.initDataUnsafe.user as TelegramUser)
+    // Initialize Telegram WebApp (works on mobile)
+    try {
+      WebApp.ready()
+      WebApp.expand?.()
+      WebApp.disableVerticalSwipes?.()
+      WebApp.setBackgroundColor?.('#000000')
+    } catch {
+      /* noop */
     }
 
-    // Expand to full screen (optional)
-    WebApp.expand()
+    // Read user from Telegram
+    const user = WebApp.initDataUnsafe?.user as TelegramUser | undefined
+
+    if (!user?.id) {
+      setTelegramError('Open this app from @Buycex_presale_bot in Telegram.')
+      setIsLoading(false)
+      return
+    }
+
+    setTelegramUser(user)
+    setTelegramError(null)
+
+    const initDataRaw = WebApp.initData
+    if (initDataRaw && initDataRaw.length > 0) {
+      saveTelegramUserValidated(initDataRaw, user)
+    } else {
+      setValidationStatus('fallback')
+      saveTelegramUserMobile(user)
+    }
+
+    setIsLoading(false)
   }, [])
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-white p-6">
-      <h1 className="text-3xl font-bold mb-6">Presale Entry</h1>
+  const saveTelegramUserValidated = async (
+    initDataRaw: string,
+    user: TelegramUser
+  ) => {
+    try {
+      const res = await axios.post(
+        `${BACKEND_URL}/api/telegram-login`,
+        { initDataRaw },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': '69420'
+          },
+          timeout: 10000
+        }
+      )
+      console.log('Validated:', res.data)
+      setValidationStatus('validated')
+    } catch (err: any) {
+      console.warn('Validation failed, using fallback', err?.response?.data || err?.message)
+      setValidationStatus('fallback')
+      saveTelegramUserMobile(user)
+    }
+  }
 
-      {user ? (
-        <div className="bg-gray-800 p-6 rounded-2xl shadow-lg w-full max-w-md">
-          <h2 className="text-xl font-semibold mb-4">Authenticated Telegram User</h2>
-          <ul className="space-y-2">
-            <li><strong>ID:</strong> {user.id}</li>
-            <li><strong>First Name:</strong> {user.first_name}</li>
-            <li><strong>Last Name:</strong> {user.last_name || 'N/A'}</li>
-            <li><strong>Username:</strong> @{user.username || 'N/A'}</li>
-            <li><strong>Language:</strong> {user.language_code}</li>
-            <li><strong>Premium:</strong> {user.is_premium ? 'Yes' : 'No'}</li>
-          </ul>
+  const saveTelegramUserMobile = async (user: TelegramUser) => {
+    try {
+      const res = await axios.post(
+        `${BACKEND_URL}/api/telegram-login-mobile`,
+        { telegramUser: user },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': '69420'
+          },
+          timeout: 10000
+        }
+      )
+      console.log('Saved (mobile):', res.data)
+    } catch (err: any) {
+      console.error('Save (mobile) failed:', err?.response?.data || err?.message)
+    }
+  }
+
+  useEffect(() => {
+    if (isConnected && address && telegramUser) {
+      linkWallet()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isConnected, address, telegramUser])
+
+  const linkWallet = async () => {
+    try {
+      const res = await axios.post(
+        `${BACKEND_URL}/api/link-telegram`,
+        {
+          walletAddress: address,
+          telegramData: telegramUser
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'ngrok-skip-browser-warning': '69420'
+          }
+        }
+      )
+      console.log('Wallet linked:', res.data)
+    } catch (err: any) {
+      console.error('Link wallet failed:', err?.response?.data || err?.message)
+    }
+  }
+
+  useEffect(() => {
+    setShowInstructions(isConnecting)
+  }, [isConnecting])
+
+  if (isLoading) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-black text-white">
+        <div className="text-center px-4">
+          <div className="mb-4 text-4xl">⏳</div>
+          <p className="text-xl">Loading...</p>
+          <p className="text-sm text-gray-400 mt-2">Initializing Telegram…</p>
         </div>
-      ) : (
-        <div className="text-gray-400 text-lg">Loading user data...</div>
-      )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-black text-white p-4">
+      <div className="w-full max-w-md rounded-lg border border-white/10 bg-black/40 p-6 text-center backdrop-blur-lg shadow-lg">
+        <img src={buycexlogo} alt="Buycex Logo" className="mx-auto mb-6 h-14 w-auto" />
+        <h1 className="mb-4 text-3xl font-bold text-yellow-400">Enter The Buycex Presale</h1>
+
+        {telegramUser ? (
+          <div className="mb-4 p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
+            <div className="flex items-center justify-center gap-3">
+              {telegramUser.photo_url ? (
+                <img
+                  src={telegramUser.photo_url}
+                  alt={telegramUser.first_name}
+                  className="w-12 h-12 rounded-full border-2 border-green-400"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-full border-2 border-green-400 bg-green-500 flex items-center justify-center text-white font-bold text-xl">
+                  {telegramUser.first_name.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="text-left">
+                <p className="text-green-300 font-semibold">
+                  {telegramUser.first_name} {telegramUser.last_name || ''}
+                </p>
+                {telegramUser.username && (
+                  <p className="text-green-400 text-sm">@{telegramUser.username}</p>
+                )}
+                {telegramUser.is_premium && (
+                  <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">⭐ Premium</span>
+                )}
+              </div>
+            </div>
+            <div className="flex items-center justify-center gap-2 mt-2">
+              <p className="text-green-400 text-xs">✅ Telegram connected</p>
+              {validationStatus === 'validated' && (
+                <span className="text-xs bg-green-500/20 text-green-300 px-2 py-0.5 rounded">🔐 Verified</span>
+              )}
+              {validationStatus === 'fallback' && (
+                <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded">⚠️ Dev mode</span>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <p className="text-red-300 text-sm whitespace-pre-line">
+              {telegramError || 'Telegram not available'}
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-3 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 rounded text-red-300 text-sm active:bg-red-500/40"
+            >
+              🔄 Retry
+            </button>
+          </div>
+        )}
+
+        <div className="mb-6">
+          {isConnected && address ? (
+            <div className="p-3 bg-green-500/10 border border-green-500/30 rounded">
+              <p className="text-green-400 font-semibold">✅ Wallet Connected</p>
+              <p className="text-green-300 text-sm font-mono break-all">
+                {address.slice(0, 6)}...{address.slice(-4)}
+              </p>
+            </div>
+          ) : (
+            <div className="p-3 bg-gray-500/10 border border-gray-500/30 rounded">
+              <p className="text-gray-400">🔴 Wallet not connected</p>
+            </div>
+          )}
+        </div>
+
+        {isConnected && telegramUser ? (
+          <NavLink
+            to="/home"
+            className="w-full inline-block px-6 py-3 rounded-lg text-lg font-bold text-black bg-yellow-400 hover:bg-yellow-500 active:bg-yellow-600 transition-colors"
+          >
+            Enter Presale
+          </NavLink>
+        ) : (
+          <div className="w-full">
+            <div className="flex justify-center mb-4">
+              <appkit-button />
+            </div>
+            <p className="text-gray-400 text-sm">
+              {!telegramUser ? 'Open via Telegram bot' : 'Connect wallet to continue'}
+            </p>
+          </div>
+        )}
+
+        {showInstructions && (
+          <div className="mt-4 p-4 border border-yellow-500/30 bg-yellow-500/10 rounded-lg text-sm">
+            <p className="text-yellow-300 font-bold mb-2">📱 Steps:</p>
+            <ol className="list-decimal list-inside text-yellow-200 text-left space-y-1">
+              <li>Approve in MetaMask</li>
+              <li>Return to Telegram</li>
+              <li>Wait for confirmation</li>
+            </ol>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
