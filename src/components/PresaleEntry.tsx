@@ -1,284 +1,68 @@
-import React, { useEffect, useState } from 'react';
-import { NavLink } from 'react-router-dom';
-import { useAccount } from 'wagmi';
-import axios from 'axios';
-import buycexlogo from '../assets/img/BUYCEX-INFINITY.png';
+import React, { useEffect, useState } from "react";
 
-const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'https://isochronous-packable-sherly.ngrok-free.dev';
-
-interface TelegramUser {
-  id: number;
-  first_name: string;
+type TgUser = {
+  id?: number;
+  is_bot?: boolean;
+  first_name?: string;
   last_name?: string;
   username?: string;
-  photo_url?: string;
   language_code?: string;
-  is_premium?: boolean;
-  allows_write_to_pm?: boolean;
-}
-
-declare global {
-  interface Window {
-    __TELEGRAM_SDK_READY__?: boolean;
-    __TELEGRAM_SDK_ERROR__?: string;
-  }
-}
+};
 
 const PresaleEntry: React.FC = () => {
-  const { isConnected, address, isConnecting } = useAccount();
-  const [showInstructions, setShowInstructions] = useState(false);
-  const [telegramUser, setTelegramUser] = useState<TelegramUser | null>(null);
-  const [telegramError, setTelegramError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [validationStatus, setValidationStatus] = useState<'pending' | 'validated' | 'fallback'>('pending');
+  const [user, setUser] = useState<TgUser | null>(null);
+  const [isTelegram, setIsTelegram] = useState<boolean>(false);
 
   useEffect(() => {
-    console.log('🚀 Component mounted, checking Telegram...');
-    
-    let checkCount = 0;
-    const maxChecks = 40; // 40 * 500ms = 20 seconds
-    
-    const checkTelegram = () => {
-      checkCount++;
-      console.log(`🔍 Attempt ${checkCount}/${maxChecks}`);
-      console.log('window.Telegram:', !!window.Telegram);
-      console.log('SDK Ready flag:', window.__TELEGRAM_SDK_READY__);
-      
-      // ✅ Try to access directly
-      const tg = (window as any).Telegram?.WebApp;
-      
-      if (tg) {
-        console.log('✅ Telegram found!');
-        console.log('Platform:', tg.platform);
-        console.log('Version:', tg.version);
-        console.log('InitData:', tg.initData ? 'EXISTS' : 'MISSING');
-        console.log('InitDataUnsafe:', tg.initDataUnsafe);
-        
-        const user = tg.initDataUnsafe?.user;
-        
-        if (user?.id) {
-          console.log('✅ User:', user.first_name, user.id);
-          setTelegramUser(user);
-          
-          // Save user
-          const initDataRaw = tg.initData;
-          if (initDataRaw) {
-            saveTelegramUserValidated(initDataRaw, user);
-          } else {
-            saveTelegramUserMobile(user);
-          }
-          
-          setIsLoading(false);
-        } else {
-          console.warn('⚠️ No user in initDataUnsafe');
-          setTelegramError('No user data. Please restart bot.');
-          setIsLoading(false);
-        }
-      } else if (checkCount < maxChecks) {
-        console.log('⏳ Not ready yet, checking again...');
-        setTimeout(checkTelegram, 500);
-      } else {
-        console.error('❌ Timeout - SDK never loaded');
-        setTelegramError('Telegram SDK failed to load. Please open from @Buycex_presale_bot');
-        setIsLoading(false);
-      }
-    };
-    
-    // Start checking after 2 seconds (give mobile time)
-    setTimeout(checkTelegram, 2000);
+    // ✅ Use the existing global Telegram object defined in utils/telegram.ts
+    const webapp = window.Telegram?.WebApp;
+
+    if (!webapp) {
+      setIsTelegram(false);
+      return;
+    }
+
+    setIsTelegram(true);
+    webapp.ready && webapp.ready();
+
+    const tgUser = webapp.initDataUnsafe?.user ?? null;
+    if (tgUser) setUser(tgUser);
   }, []);
 
-  const saveTelegramUserValidated = async (initDataRaw: string, user: TelegramUser) => {
-    try {
-      console.log('🔐 Validating init data...');
-      
-      const response = await axios.post(
-        `${BACKEND_URL}/api/telegram-login`,
-        { initDataRaw },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': '69420'
-          },
-          timeout: 10000
-        }
-      );
-      
-      console.log('✅ User validated:', response.data);
-      setValidationStatus('validated');
-    } catch (error: any) {
-      console.error('❌ Validation failed:', error.response?.data || error.message);
-      setValidationStatus('fallback');
-      saveTelegramUserMobile(user);
-    }
-  };
+  return (
+    <div style={{ padding: 20, fontFamily: "Arial, sans-serif" }}>
+      <h2>Presale Entry</h2>
 
-  const saveTelegramUserMobile = async (user: TelegramUser) => {
-    try {
-      console.log('📱 Saving user (fallback)...');
-      const response = await axios.post(
-        `${BACKEND_URL}/api/telegram-login-mobile`,
-        { telegramUser: user },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': '69420'
-          },
-          timeout: 10000
-        }
-      );
-      console.log('✅ User saved:', response.data);
-    } catch (error: any) {
-      console.error('❌ Save failed:', error.response?.data || error.message);
-    }
-  };
-
-  useEffect(() => {
-    if (isConnected && address && telegramUser) {
-      linkWallet();
-    }
-  }, [isConnected, address, telegramUser]);
-
-  const linkWallet = async () => {
-    try {
-      console.log('🔗 Linking wallet...');
-      const response = await axios.post(
-        `${BACKEND_URL}/api/link-telegram`,
-        {
-          walletAddress: address,
-          telegramData: telegramUser,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'ngrok-skip-browser-warning': '69420'
-          }
-        }
-      );
-      console.log('✅ Wallet linked:', response.data);
-    } catch (error: any) {
-      console.error('❌ Link failed:', error.response?.data || error.message);
-    }
-  };
-
-  useEffect(() => {
-    setShowInstructions(isConnecting);
-  }, [isConnecting]);
-
-  if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-black text-white">
-        <div className="text-center px-4">
-          <div className="mb-4 text-4xl">⏳</div>
-          <p className="text-xl">Loading...</p>
-          <p className="text-sm text-gray-400 mt-2">Waiting for Telegram SDK...</p>
-          <p className="text-xs text-gray-500 mt-4">
-            If stuck for more than 10 seconds:<br />
-            Close and reopen the bot
+      {!isTelegram ? (
+        <p>⚠️ Open this page inside Telegram to view user data.</p>
+      ) : user ? (
+        <div
+          style={{
+            background: "#f9f9f9",
+            borderRadius: "12px",
+            padding: "16px",
+            maxWidth: "400px",
+            boxShadow: "0 2px 6px rgba(0,0,0,0.1)",
+          }}
+        >
+          <h3>👤 Telegram User Info</h3>
+          <p>
+            <strong>ID:</strong> {user.id}
+          </p>
+          <p>
+            <strong>Name:</strong> {user.first_name} {user.last_name}
+          </p>
+          <p>
+            <strong>Username:</strong>{" "}
+            {user.username ? `@${user.username}` : "N/A"}
+          </p>
+          <p>
+            <strong>Language:</strong> {user.language_code ?? "N/A"}
           </p>
         </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-black text-white p-4">
-      <div className="w-full max-w-md rounded-lg border border-white/10 bg-black/40 p-6 text-center backdrop-blur-lg shadow-lg">
-        <img src={buycexlogo} alt="Buycex Logo" className="mx-auto mb-6 h-14 w-auto" />
-        <h1 className="mb-4 text-3xl font-bold text-yellow-400">Enter The Buycex Presale</h1>
-
-        {telegramUser ? (
-          <div className="mb-4 p-4 bg-green-500/10 border border-green-500/30 rounded-lg">
-            <div className="flex items-center justify-center gap-3">
-              {telegramUser.photo_url ? (
-                <img 
-                  src={telegramUser.photo_url} 
-                  alt={telegramUser.first_name} 
-                  className="w-12 h-12 rounded-full border-2 border-green-400" 
-                />
-              ) : (
-                <div className="w-12 h-12 rounded-full border-2 border-green-400 bg-green-500 flex items-center justify-center text-white font-bold text-xl">
-                  {telegramUser.first_name.charAt(0).toUpperCase()}
-                </div>
-              )}
-              <div className="text-left">
-                <p className="text-green-300 font-semibold">
-                  {telegramUser.first_name} {telegramUser.last_name || ''}
-                </p>
-                {telegramUser.username && (
-                  <p className="text-green-400 text-sm">@{telegramUser.username}</p>
-                )}
-                {telegramUser.is_premium && (
-                  <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded">⭐ Premium</span>
-                )}
-              </div>
-            </div>
-            <div className="flex items-center justify-center gap-2 mt-2">
-              <p className="text-green-400 text-xs">✅ Telegram connected</p>
-              {validationStatus === 'validated' && (
-                <span className="text-xs bg-green-500/20 text-green-300 px-2 py-0.5 rounded">🔐 Verified</span>
-              )}
-              {validationStatus === 'fallback' && (
-                <span className="text-xs bg-yellow-500/20 text-yellow-300 px-2 py-0.5 rounded">⚠️ Dev mode</span>
-              )}
-            </div>
-          </div>
-        ) : (
-          <div className="mb-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
-            <p className="text-red-300 text-sm whitespace-pre-line">{telegramError}</p>
-            <button 
-              onClick={() => window.location.reload()} 
-              className="mt-3 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 rounded text-red-300 text-sm active:bg-red-500/40"
-            >
-              🔄 Retry
-            </button>
-          </div>
-        )}
-
-        <div className="mb-6">
-          {isConnected && address ? (
-            <div className="p-3 bg-green-500/10 border border-green-500/30 rounded">
-              <p className="text-green-400 font-semibold">✅ Wallet Connected</p>
-              <p className="text-green-300 text-sm font-mono break-all">
-                {address.slice(0, 6)}...{address.slice(-4)}
-              </p>
-            </div>
-          ) : (
-            <div className="p-3 bg-gray-500/10 border border-gray-500/30 rounded">
-              <p className="text-gray-400">🔴 Wallet not connected</p>
-            </div>
-          )}
-        </div>
-
-        {isConnected && telegramUser ? (
-          <NavLink 
-            to="/home" 
-            className="w-full inline-block px-6 py-3 rounded-lg text-lg font-bold text-black bg-yellow-400 hover:bg-yellow-500 active:bg-yellow-600 transition-colors"
-          >
-            Enter Presale
-          </NavLink>
-        ) : (
-          <div className="w-full">
-            <div className="flex justify-center mb-4">
-              <appkit-button />
-            </div>
-            <p className="text-gray-400 text-sm">
-              {!telegramUser ? 'Open via Telegram bot' : 'Connect wallet to continue'}
-            </p>
-          </div>
-        )}
-
-        {showInstructions && (
-          <div className="mt-4 p-4 border border-yellow-500/30 bg-yellow-500/10 rounded-lg text-sm">
-            <p className="text-yellow-300 font-bold mb-2">📱 Steps:</p>
-            <ol className="list-decimal list-inside text-yellow-200 text-left space-y-1">
-              <li>Approve in MetaMask</li>
-              <li>Return to Telegram</li>
-              <li>Wait for confirmation</li>
-            </ol>
-          </div>
-        )}
-      </div>
+      ) : (
+        <p>Loading user data...</p>
+      )}
     </div>
   );
 };
